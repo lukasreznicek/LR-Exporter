@@ -17,6 +17,7 @@ def f7(seq):
     seen_add = seen.add
     return [x for x in seq if not (x in seen or seen_add(x))]
 
+
 class SelectedObjectsInfo():
     def __init__(self):
         self.active_obj = None
