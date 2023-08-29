@@ -20,8 +20,6 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
             bpy.ops.object.select_all(action='DESELECT')
             
             bpy.context.view_layer.objects.active = selected_obj
-            
-
             selected_obj.select_set(True)    
 
             children = selected_obj.children_recursive
@@ -78,11 +76,6 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
 
 
 
-
-
-
-
-
             #--- NAMING FBX ---
 
             blend_path = bpy.path.abspath('//')
@@ -107,7 +100,27 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
                 os.makedirs(export_path)
 
             bpy.ops.export_scene.fbx(filepath = str(export_file), use_selection=True)
-            #--- NAMING END ---
+           
+            # bpy.ops.export_scene.fbx(
+                # filepath=GetExportFullpath(dirpath, filename),
+                # check_existing=False,
+                # use_selection=True,
+                # global_scale=GetObjExportScale(active),
+                # object_types={'EMPTY', 'CAMERA', 'LIGHT', 'MESH', 'OTHER'},
+                # use_custom_props=addon_prefs.exportWithCustomProps,
+                # mesh_smooth_type="FACE",
+                # add_leaf_bones=False,
+                # use_armature_deform_only=active.exportDeformOnly,
+                # bake_anim=False,
+                # use_metadata=addon_prefs.exportWithMetaData,
+                # primary_bone_axis=active.exportPrimaryBaneAxis,
+                # secondary_bone_axis=active.exporSecondaryBoneAxis,
+                # axis_forward=active.exportAxisForward,
+                # axis_up=active.exportAxisUp,
+                # bake_space_transform=False
+                # )
+           
+           #--- NAMING END ---
 
 
             #--- CLEANUP ---

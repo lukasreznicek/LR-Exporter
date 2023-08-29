@@ -34,14 +34,11 @@ class SelectedObjectsInfo():
             if obj.type == 'MESH':
                 data_temp.append(obj.data)
         
-        #Remove duplicate data    
-                   
-        self.selected_objs_data = f7(data_temp)
-        # print('DATA TEMP:',self.selected_objs_data) 
+
+        #Remove duplicate data           
+        self.selected_objs_data = f7(data_temp) 
         for data in self.selected_objs_data:
             self.selected_objs_data_names.append(data.name)
-
-
 
 
     def restore_object_names(self, name_list = None):
