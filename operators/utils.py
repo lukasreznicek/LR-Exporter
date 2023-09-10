@@ -18,6 +18,7 @@ def f7(seq):
     return [x for x in seq if not (x in seen or seen_add(x))]
 
 
+
 class SelectedObjectsInfo():
     def __init__(self):
         self.active_obj = None
@@ -26,7 +27,6 @@ class SelectedObjectsInfo():
         self.selected_objs_names = []
         self.selected_objs_data_names = []
 
-    def get_info(self):
         data_temp = []
         self.active_obj = bpy.context.object
         self.selected_objs = bpy.context.selected_objects
@@ -35,12 +35,16 @@ class SelectedObjectsInfo():
             if obj.type == 'MESH':
                 data_temp.append(obj.data)
         
-
-        #Remove duplicate data           
+        #Remove duplicate data
         self.selected_objs_data = f7(data_temp) 
         for data in self.selected_objs_data:
             self.selected_objs_data_names.append(data.name)
-
+    
+    def get_objects(self):
+        return self.selected_objs
+    
+    def get_objects_names(self):
+        return self.selected_objs_names
 
     def restore_object_names(self, name_list = None):
         if name_list == None:
@@ -64,5 +68,19 @@ class SelectedObjectsInfo():
             current_name = data.name
             data.name = current_name+suffix
 
+    def add_missing_low_poly(self, lp_naming = None):
+        if lp_naming == None:
+            lp_suffix = '_LP'
+        else:
+            lp_suffix = lp_naming
 
+        new_duplicates =[]
+        for obj in self.selected_objs:
+            if obj.name.endswith(lp_suffix):
+                name_no_suffix = obj.name.rsplit('_LP', 1)[0]
+
+        return(new_duplicates)    
+        
+    def delete_all():
+        pass
 
