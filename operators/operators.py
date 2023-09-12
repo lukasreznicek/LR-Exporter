@@ -20,7 +20,7 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
             return {'FINISHED'}
 
 
-        if len(objects_to_evaluate) == 0:   #Check for selected files
+        if len(bpy.context.selected_objects) == 0:   #Check for selected files
             message = 'Select object first'
             self.report({'WARNING'}, message)
             return {'FINISHED'}
@@ -28,8 +28,6 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
         # --- PRE-PROCESS ---
         time_start = time.time()        
         lr_export_settings = bpy.context.scene.lr_export
-
-
 
         if lr_export_settings.export_full_hierarchy == True: #Bool to select full hierarchy
 
@@ -74,10 +72,7 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
             store_selection = objects_to_evaluate
             store_active_selection = objects_to_evaluate_active
 
-
         # blender_file_location = bpy.path.abspath('//')
-
-
 
 
         #Add missing HP 
