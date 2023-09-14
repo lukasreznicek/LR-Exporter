@@ -59,7 +59,8 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
 
 
         #--- START ---        
-        #Store initial selection
+    
+        #--- Input ---
         objects_to_evaluate = bpy.context.selected_objects
         objects_to_evaluate_active = bpy.context.view_layer.objects.active
         
@@ -349,6 +350,310 @@ class OBJECT_OT_store_object_data_json(bpy.types.Operator):
 
 
         return {'FINISHED'}
+
+
+
+
+
+class OBJECT_OT_lr_pack_uvs(bpy.types.Operator):
+    bl_idname = "object.lr_pack_uvs"
+    bl_label = "Pack"
+    bl_options = {'REGISTER', 'UNDO'}
+
+
+
+
+    uv_channel_from: bpy.props.IntProperty(
+        name="From UV Index",
+        description="If missing create new UV Map from this index",
+        default=0,
+        min=0,
+        soft_max=3,
+    )
+
+    uv_channel_to: bpy.props.IntProperty(
+        name="To UV Index",
+        description="An example integer property",
+        default=1,
+        min=0,
+        soft_max=3,
+    )
+    uv_name: bpy.props.StringProperty(
+        name="UV Name",
+        description="An example integer property",
+        default='UV_All',
+    )
+
+    def execute(self, context): 
+        '''File is saved next to a .blend file'''
+        
+        selected_objects = bpy.context.selected_objects
+        selected_objects_MESH = [i for i in selected_objects if i.type=='MESH']
+        
+
+
+        store_active_uv_map = []
+        for index,obj in enumerate(selected_objects_MESH):
+
+            #Store active uv map
+            store_active_uv_map.append(obj.data.uv_layers.active_index)
+
+
+            # List all UV maps
+            uv_maps = obj.data.uv_layers.keys()
+            uv_maps_amnt = len(uv_maps)-1 #Starting from 0
+
+            #If uv with this name present rename it
+            existing = obj.data.uv_layers.get(self.uv_name)
+            if existing:
+                existing.name = self.uv_name + '_01'
+
+
+            # Make the UV active
+            obj.data.uv_layers[self.uv_channel_from].active = True
+
+            while self.uv_channel_to > uv_maps_amnt:
+                obj.data.uv_layers[self.uv_channel_from].active = True
+                obj.data.uv_layers.new(name='UVMap',do_init=True) #do init on true copies the UV from active
+                uv_maps_amnt += 1
+
+
+            obj.data.uv_layers[self.uv_channel_to].name = self.uv_name
+
+
+
+        bpy.ops.object.select_all(action='DESELECT')
+        for obj in selected_objects_MESH:
+            obj.select_set(True)
+
+        # Step 1: Store mode
+        current_mode = bpy.context.object.mode
+
+        # Step 2: Go to edit mode
+        bpy.ops.object.mode_set(mode='EDIT')
+
+        # Step 3: Get select mode
+        select_mode = bpy.context.tool_settings.mesh_select_mode[:]
+
+        # # Step 4: Store select mode vertices/edges or polygons depending on active mode
+        # selected_verts = []
+        # selected_edges = []
+        # selected_faces = []
+
+        # if select_mode[0]:
+        #     selected_verts = [v.index for v in obj.data.vertices if v.select]
+        # if select_mode[1]:
+        #     selected_edges = [e.index for e in obj.data.edges if e.select]
+        # if select_mode[2]:
+        #     selected_faces = [f.index for f in obj.data.polygons if f.select]
+
+        # Step 5: Store UV sync mode
+        uv_sync_mode = bpy.context.tool_settings.use_uv_select_sync
+
+        # Step 6: Turn on UV sync mode
+        bpy.context.tool_settings.use_uv_select_sync = True
+
+        # Step 7: Select all polygons
+        bpy.ops.mesh.select_all(action='SELECT')
+
+        # Step 8: Pack UV map
+        bpy.ops.uv.pack_islands(margin=0.05)
+
+        # Step 9: Restore UV sync mode
+        bpy.context.tool_settings.use_uv_select_sync = uv_sync_mode
+
+        # # Step 10: Restore selection based on select mode
+        # bpy.ops.object.mode_set(mode='EDIT')
+        # bpy.ops.mesh.select_all(action='DESELECT')
+        # bpy.ops.object.mode_set(mode='OBJECT')
+
+        # if select_mode[0]:
+        #     print(f"Selected verts: {selected_verts}")
+        #     for v_index in selected_verts:
+        #         obj.data.vertices[v_index].select = True
+        # if select_mode[1]:
+        #     print(f"Selected edges: {selected_edges}")
+        #     for e_index in selected_edges:
+        #         obj.data.edges[e_index].select = True
+        # if select_mode[2]:
+        #     print(f"Selected faces: {selected_faces}")
+        #     for f_index in selected_faces:
+        #         obj.data.polygons[f_index].select = True
+
+        # Step 11: Restore mode
+        bpy.ops.object.mode_set(mode=current_mode)
+
+        #Restore selection
+        bpy.ops.object.select_all(action='DESELECT')
+        for obj in selected_objects:
+            obj.select_set(True)
+
+
+        return {'FINISHED'}
+
+
+
+
+
+
+
+class OBJECT_OT_lr_pack_uvs1(bpy.types.Operator):
+    bl_idname = "object.lr_pack_uvs1"
+    bl_label = "Pack1"
+    bl_options = {'REGISTER', 'UNDO'}
+
+
+    uv_channel: bpy.props.IntProperty(
+        name="uv_channel",
+        description="An example integer property",
+        default=1,
+        min=0,
+        soft_max=3,
+    )
+
+    def execute(self, context): 
+        '''File is saved next to a .blend file'''
+        for obj in bpy.context.selected_objects:
+            uv_channel_index = self.uv_channel
+
+            # List all UV maps
+            uv_maps = obj.data.uv_layers.keys()
+            uv_maps_amnt = len(uv_maps)-1
+
+            if uv_channel_index > uv_maps_amnt:
+                uv_channel_index = uv_maps_amnt
+                self.uv_channel = len(uv_maps)
+                message = f'Executing on last UVMap'
+                self.report({'INFO'}, message)
+
+            # Select the second UV map
+            second_uv_map_name = uv_maps[uv_channel_index]  # Index 1 corresponds to the second UV map
+            obj.data.uv_layers.active = obj.data.uv_layers[second_uv_map_name]
+
+
+            # Step 1: Store mode
+            current_mode = bpy.context.object.mode
+
+            # Step 2: Go to edit mode
+            bpy.ops.object.mode_set(mode='EDIT')
+
+            # Step 3: Get select mode
+            select_mode = bpy.context.tool_settings.mesh_select_mode[:]
+
+            # Step 4: Store select mode vertices/edges or polygons depending on active mode
+            selected_verts = []
+            selected_edges = []
+            selected_faces = []
+
+            if select_mode[0]:
+                selected_verts = [v.index for v in obj.data.vertices if v.select]
+            if select_mode[1]:
+                selected_edges = [e.index for e in obj.data.edges if e.select]
+            if select_mode[2]:
+                selected_faces = [f.index for f in obj.data.polygons if f.select]
+
+            # Step 5: Store UV sync mode
+            uv_sync_mode = bpy.context.tool_settings.use_uv_select_sync
+
+            # Step 6: Turn on UV sync mode
+            bpy.context.tool_settings.use_uv_select_sync = True
+
+            # Step 7: Select all polygons
+            bpy.ops.mesh.select_all(action='SELECT')
+
+            # Step 8: Pack UV map
+            bpy.ops.uv.pack_islands(margin=0.05)
+
+            # Step 9: Restore UV sync mode
+            bpy.context.tool_settings.use_uv_select_sync = uv_sync_mode
+
+            # Step 10: Restore selection based on select mode
+            bpy.ops.object.mode_set(mode='EDIT')
+            bpy.ops.mesh.select_all(action='DESELECT')
+            bpy.ops.object.mode_set(mode='OBJECT')
+
+            if select_mode[0]:
+                print(f"Selected verts: {selected_verts}")
+                for v_index in selected_verts:
+                    obj.data.vertices[v_index].select = True
+            if select_mode[1]:
+                print(f"Selected edges: {selected_edges}")
+                for e_index in selected_edges:
+                    obj.data.edges[e_index].select = True
+            if select_mode[2]:
+                print(f"Selected faces: {selected_faces}")
+                for f_index in selected_faces:
+                    obj.data.polygons[f_index].select = True
+
+            # Step 11: Restore mode
+            bpy.ops.object.mode_set(mode=current_mode)
+
+        return {'FINISHED'}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# # Define a custom operator class
+# class SimpleOperator(bpy.types.Operator):
+#     bl_idname = "object.simple_operator"  # Unique identifier for the operator
+#     bl_label = "Simple Operator"  # Display name for the operator
+#     bl_options = {'REGISTER', 'UNDO'}  # Operator options
+    
+#     # Define operator properties
+#     my_bool_property: bpy.props.BoolProperty(
+#         name="Example Boolean",
+#         description="An example boolean property",
+#         default=True,
+#     )
+    
+#     my_int_property: bpy.props.IntProperty(
+#         name="Example Integer",
+#         description="An example integer property",
+#         default=10,
+#         min=0,
+#     )
+
+#     def execute(self, context):
+#         # Access the operator properties
+#         bool_value = self.my_bool_property
+#         int_value = self.my_int_property
+
+#         # Do something with the settings
+#         if bool_value:
+#             self.report({'INFO'}, f"Boolean property is True. Integer property value: {int_value}")
+#         else:
+#             self.report({'INFO'}, f"Boolean property is False. Integer property value: {int_value}")
+        
+#         # Add your operator logic here
+
+#         return {'FINISHED'}
+
+# # Register the operator
+# def register():
+#     bpy.utils.register_class(SimpleOperator)
+
+# def unregister():
+#     bpy.utils.unregister_class(SimpleOperator)
+
+# if __name__ == "__main__":
+#     register()
+
+
+
+
+
+
+
 
 
 

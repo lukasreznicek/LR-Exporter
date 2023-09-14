@@ -26,7 +26,7 @@ bl_info = {
 
 addon_name = 'lr_export'
 
-from .operators.operators import OBJECT_OT_lr_hierarchy_exporter, OBJECT_OT_store_object_data_json
+from .operators.operators import OBJECT_OT_lr_hierarchy_exporter, OBJECT_OT_store_object_data_json,OBJECT_OT_lr_pack_uvs
 from .operators.wrappers import lr_export_one_material,lr_exportformask
 from bpy.props import IntProperty, CollectionProperty, StringProperty,FloatVectorProperty,BoolProperty,EnumProperty
 
@@ -197,7 +197,7 @@ class VIEW3D_PT_lr_export_assembly(bpy.types.Panel):
         row.scale_y = 2
         row.operator("object.lr_store_object_data_json", text="Export Placement", icon = 'EXPORT')
 
-classes = [lr_export_settings,OBJECT_OT_lr_hierarchy_exporter,VIEW3D_PT_lr_export, VIEW3D_PT_lr_export_assembly, OBJECT_OT_store_object_data_json, lr_export_one_material, lr_exportformask]
+classes = [lr_export_settings,OBJECT_OT_lr_hierarchy_exporter,VIEW3D_PT_lr_export, VIEW3D_PT_lr_export_assembly, OBJECT_OT_store_object_data_json, lr_export_one_material, lr_exportformask,OBJECT_OT_lr_pack_uvs]
 
 def register():
     for cls in classes:
