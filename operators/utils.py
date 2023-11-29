@@ -18,8 +18,7 @@ def f7(seq):
     return [x for x in seq if not (x in seen or seen_add(x))]
 
 
-
-class SelectedObjectsInfo():
+class SelectionCapture():
     def __init__(self):
         self.active_obj = None
         self.selected_objs = []
@@ -40,11 +39,45 @@ class SelectedObjectsInfo():
         for data in self.selected_objs_data:
             self.selected_objs_data_names.append(data.name)
     
+
+    def make_selection(self):
+        '''Will select only objects in this class instance. Preserves active obj. Will deselect everything before.'''
+        bpy.ops.object.select_all(action='DESELECT')
+        for obj in self.selected_objs:
+            obj.select_set(True)
+        bpy.context.view_layer.objects.active = self.active_obj
+
+    def deselect_ignored_objects(self):
+        for obj in self.selected_objs:
+            if obj.lr_object_export_settings.object_mode == 'NOT_EXPORTED':
+                obj.select_set(False)
+
+    def select_ignored_objects(self):
+        for obj in self.selected_objs:
+            if obj.lr_object_export_settings.object_mode == 'NOT_EXPORTED':
+                obj.select_set(True)
+
     def get_objects(self):
         return self.selected_objs
     
     def get_objects_names(self):
         return self.selected_objs_names
+
+    def apply_modifiers(self):
+        store_active_obj = bpy.context.view_layer.objects.active
+        
+        for obj in self.selected_objs:
+            if obj.type == 'MESH':
+                bpy.context.view_layer.objects.active = obj
+
+                for modifier in obj.modifiers:
+                    bpy.ops.object.modifier_apply(modifier=modifier.name, report=False, merge_customdata=True, single_user=True)
+
+        bpy.context.view_layer.objects.active = store_active_obj
+
+
+    def __repr__(self) -> str:
+        return str(self.selected_objs_names)
 
     def restore_object_names(self, name_list = None):
         if name_list == None:
@@ -81,6 +114,6 @@ class SelectedObjectsInfo():
 
         return(new_duplicates)    
         
-    def delete_all():
-        pass
-
+    def remove_objects(self):
+        for obj in self.selected_objs:
+            bpy.data.objects.remove(obj, do_unlink=True)

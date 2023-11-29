@@ -113,8 +113,6 @@ class lr_export_one_material(bpy.types.Operator):
 
 
 
-
-
 class lr_exportformask(bpy.types.Operator):
 
     """ Exports objects with one UV Set and one material.
@@ -124,8 +122,11 @@ class lr_exportformask(bpy.types.Operator):
 
     bl_idname = "object.lr_exportformask"
     bl_label = "LR Mask export - Export objects for mask"
+    
+    
+    
     def execute(self, context):
-
+        lr_export_settings = bpy.context.scene.lr_export
         sel_obj = bpy.context.selected_objects
         act_obj = bpy.context.active_object
         ina_objmain = []
@@ -134,6 +135,7 @@ class lr_exportformask(bpy.types.Operator):
             message = 'Not exported. Please select parent without children.'
             self.report({'INFO'}, message)
             return {'FINISHED'}
+
 
         for i in sel_obj:
             if i == bpy.context.active_object:
@@ -191,7 +193,7 @@ class lr_exportformask(bpy.types.Operator):
                     
                             i.data.uv_layers.remove(i.data.uv_layers[1])
 
-        removesalluvmapsbut(ina_obj,keepuvmapname = 'MaskUV')  
+        removesalluvmapsbut(ina_obj,keepuvmapname = lr_export_settings.export_mask_uv_name)  
 
 
         for i in ina_obj:
@@ -208,7 +210,7 @@ class lr_exportformask(bpy.types.Operator):
         collection_name_for_occluder = 'occluder'
         mat_occluder_name = 'MaskOccluder'
         mask_id_collection_tag = '_id'
-        mask_base_name = 'M_BakeMat'
+
 
 
 
@@ -232,62 +234,37 @@ class lr_exportformask(bpy.types.Operator):
         #SET MATERIAL
         for obj in ina_obj: 
             
-            # link = i.material_slots[0].link
-
-            # #If material is linked to data:
-            # if link == 'DATA':
-            #     if i.data.materials[0].name != mat_occluder_name:
-            #         i.data.materials[0] = bpy.data.materials['MaskBake']
-
-            # #If material is linked to object:
-            # if link == 'OBJECT':
-            #     if i.material_slots[0].name != mat_occluder_name:
-            #         i.material_slots[0].material = bpy.data.materials['MaskBake']
+            if obj.get("lr_mat_override_mask"):
 
 
-            # #If object is in collection containing 'Occluder' assign material occluder.
-            # for collection in i.users_collection:
-            #     collection_name = collection.name
-            #     collection_name = collection_name.lower()
-            #     if collection_name_for_occluder in collection_name:
-            #         i.material_slots[0].material = bpy.data.materials[mat_occluder_name]
+                #Create material if it isn't in scene.
+                mat_name = obj['lr_mat_override_mask']
 
-            #If object is in collection containing '_ID' assign material.
-            link = obj.material_slots[0].link 
+                if mat_name not in all_mats:
+                    bpy.data.materials.new(name=mat_name)
+                    all_mats.append('mat_name')
+                
 
-            for collection in obj.users_collection:
-                collection_name = collection.name
-                collection_name_lower = collection_name.lower()
-                match = re.search('(?i)_id(\d+)', collection_name)
+                link = obj.material_slots[0].link 
+                if link == 'OBJECT':
+                    obj.material_slots[0].material = bpy.data.materials[str(mat_name)]
 
 
-                if 'occluder' in collection_name_lower:
-                    if mat_occluder_name not in all_mats:
-                        mat_occluder = bpy.data.materials.new(name=mat_occluder_name)
-                    if link == 'OBJECT':
-                        obj.material_slots[0].material = bpy.data.materials[str(mat_occluder_name)]
-
-                    if link == 'DATA':
-                        obj.data.materials[0] = bpy.data.materials[mat_occluder_name]   
-
-    
-                if match:
-                    #Create material if it isn't in scene.
-                    mat_name = mask_base_name+'_ID'+match.group(1)
-
-                    if mat_name not in all_mats:
-                        bpy.data.materials.new(name=mat_name)
-                    
-                    if link == 'OBJECT':
-
-                        obj.material_slots[0].material = bpy.data.materials[str(mat_name)]
-
-                    if link == 'DATA':
-
-                        obj.data.materials[0] = bpy.data.materials[str(mat_name)]
+                if link == 'DATA':
+                    obj.data.materials[0] = bpy.data.materials[str(mat_name)]
 
 
+                #If object is in collection containing '_ID' assign material.
+                #     if 'occluder' in collection_name_lower:
+                #         if mat_occluder_name not in all_mats:
+                #             mat_occluder = bpy.data.materials.new(name=mat_occluder_name)
+                #         if link == 'OBJECT':
+                #             obj.material_slots[0].material = bpy.data.materials[str(mat_occluder_name)]
 
+                #         if link == 'DATA':
+                #             obj.data.materials[0] = bpy.data.materials[mat_occluder_name]   
+            else:
+                continue
 
         #PARENT TO
         for i in ina_obj:
@@ -303,7 +280,7 @@ class lr_exportformask(bpy.types.Operator):
         context.view_layer.objects.active = act_obj
 
         #EXPORT
-        bpy.ops.object.exportforunreal()
+        bpy.ops.object.lr_exporter_export()
 
 
 
@@ -321,6 +298,13 @@ class lr_exportformask(bpy.types.Operator):
         #Restore names
         for name,obj in zip(stored_names,ina_objmain):
             obj.name = name
+
+        for obj in sel_obj:
+            obj.select_set(True)
+
+        bpy.context.view_layer.objects.active = act_obj
+
+
 
 
         return {'FINISHED'}
