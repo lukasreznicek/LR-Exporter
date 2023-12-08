@@ -195,7 +195,6 @@ class lr_exportformask(bpy.types.Operator):
 
         removesalluvmapsbut(ina_obj,keepuvmapname = lr_export_settings.export_mask_uv_name)  
 
-
         for i in ina_obj:
             bpy.context.view_layer.objects.active = i
 
@@ -210,9 +209,6 @@ class lr_exportformask(bpy.types.Operator):
         collection_name_for_occluder = 'occluder'
         mat_occluder_name = 'MaskOccluder'
         mask_id_collection_tag = '_id'
-
-
-
 
 
         for material in bpy.data.materials:
@@ -235,7 +231,6 @@ class lr_exportformask(bpy.types.Operator):
         for obj in ina_obj: 
             
             if obj.get("lr_mat_override_mask"):
-
 
                 #Create material if it isn't in scene.
                 mat_name = obj['lr_mat_override_mask']

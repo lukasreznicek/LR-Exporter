@@ -17,7 +17,7 @@ bl_info = {
     "author" : "Lukas Reznicek",
     "description" : "",
     "blender" : (2, 80, 0),
-    "version" : (0, 0, 1),
+    "version" : (1, 0, 0),
     "location" : "",
     "warning" : "",
     "category" : "Generic"
@@ -37,11 +37,11 @@ class LR_ExportSettings_Scene(bpy.types.PropertyGroup):
     
     export_sm_prefix: bpy.props.StringProperty(name="Prefix", description="Prefix for exported file", default="SM_", maxlen=1024,)
     export_sm_suffix:bpy.props.StringProperty(name="Suffix", description="Suffix for exported file", default="", maxlen=1024,)
-    export_mask_uv_name:bpy.props.StringProperty(name="UV", description="UV With this name will be kept", default="UV_All", maxlen=1024,)
+    # export_mask_uv_name:bpy.props.StringProperty(name="UV", description="UV With this name will be kept", default="UV_All", maxlen=1024,)
     export_path:bpy.props.StringProperty(name="Path", description="// = .blend file location\n//..\ = .blend file parent folder", default="//..\\", maxlen=1024,subtype='DIR_PATH')
     export_type:bpy.props.EnumProperty(name= 'Export Type', description= '', items= [('OP1', 'Option 1',''),('OP2', 'Option 2',''),('OP3', 'Option 3','')])
     add_missing_hp: bpy.props.BoolProperty(name="Add Missing HP",description= 'Select one _LP and _HP object. Exporter goes through all children with _HP/_LP and matches them by name. Then adds missing _HP objects. \n Useful when some object dont need high poly but still need to be baked', default=False)
-    export_full_hierarchy: bpy.props.BoolProperty(name="Full Hierarchy  ",description='True: Children and all parent objects are exported. \nFalse: Selected and children objects are exported', default=True)
+    export_full_hierarchy: bpy.props.BoolProperty(name="Full Hierarchy  ",description='True: Children and all parent objects are exported. FBX name/settings is taken from upper most object in hierarchy.\nFalse: Selected and children objects are exported', default=True)
     export_hidden: bpy.props.BoolProperty(name="Export Hidden",description='True: Export hidden objects in hierarchy', default=True)
     
     lr_assembly_replace_file: bpy.props.BoolProperty(name="Replace File", default=True)
@@ -85,12 +85,22 @@ class LR_ExportSettings_Object(bpy.types.PropertyGroup):
     lr_mat_override_mask:bpy.props.StringProperty(
         name="Mat Override",
         description=(
-            'Removes all materials and assigns a new one'
+            '(Optional, Object Setting)\n\nRemoves all materials and assigns a new one.\nIf empty, nothing is changed'
             ),
         # override={'LIBRARY_OVERRIDABLE'},
         maxlen=64,
         default="",
         # subtype='FILE_NAME'
+        )
+    #For mask export
+    lr_uv_isolate_mask:bpy.props.StringProperty(
+        name="Keep UV",
+        description=(
+            '(Optional, Object Setting)\n\nDeletes all UVs except one specified.\nIf empty, nothing is changed'
+            ),
+        maxlen=64,
+        default="",
+
         )
 
 
@@ -127,8 +137,6 @@ class VIEW3D_PT_ObjectProperties(bpy.types.Panel):
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
 
-
-
     def draw(self, context):
         lr_export_settings_scene = context.scene.lr_export_settings_scene
         layout = self.layout
@@ -148,11 +156,10 @@ class VIEW3D_PT_lr_export(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = 'LR Export'
 
- 
     def draw(self, context):
 
         lr_export_settings_scene = context.scene.lr_export_settings_scene
-
+        lr_object_export_settings = context.object.lr_object_export_settings
         layout = self.layout.box()
         layout.label(text="Scene Settings:")
         
@@ -221,11 +228,13 @@ class VIEW3D_PT_lr_export(bpy.types.Panel):
         
         row = layout.column(align=True)
         row.scale_y = 1
-        row.operator("object.lr_exportformask", text="Export for mask", icon = 'EXPORT')
+        op = row.operator("object.lr_exporter_export", text="Export for mask", icon = 'EXPORT')
+        op.export_for_mask = True
         
         if context.object:
+            row.alignment = 'RIGHT'
             row.prop(context.object.lr_object_export_settings,'lr_mat_override_mask')
-        row.prop(lr_export_settings_scene, "export_mask_uv_name")
+            row.prop(lr_object_export_settings, "lr_uv_isolate_mask")
             
 
         row.separator()

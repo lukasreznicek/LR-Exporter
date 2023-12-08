@@ -54,13 +54,14 @@ def change_local_view_on_objects(objects:list,viewport,add_to_local_view=True):
             obj.local_view_set(viewport, add_to_local_view)
 
 class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
-    """ Exports selected object and its children into FBX file. Ideally select only parent object """
+    """Exports selected object and its children (or parents) into FBX file.\nOne selected object = One .FBX. Multiple object selection will result in multiple .FBX"""
     
     bl_idname = "object.lr_exporter_export"
     bl_label = "Exports obj"
     bl_options = {'REGISTER', 'UNDO'}
     
     export_hidden:bpy.props.BoolProperty(name="Export Hidden", description="Exports all objects in hierarchy including hidden objects.", default=True, options={'HIDDEN'})
+    export_for_mask:bpy.props.BoolProperty(name="Export For Mask", description="Exports object with material and UV override in mind", default=True, options={'HIDDEN'})
 
 
     def execute(self, context): 
@@ -266,24 +267,28 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
 
 
 
-
             #Remove any parents in case of exporting a child object
             obj_info_after.active_obj.parent = None
 
+
             #Reset position
-            if obj_info_after.active_obj.get("lr_export_reset_position") == 0:
+            if obj_info_after.active_obj.lr_object_export_settings.get("lr_export_reset_position") == 0:
                 pass
             else:
                 obj_info_after.active_obj.location = 0,0,0
             
+
             #Reset rotation
-            if obj_info_after.active_obj.get("lr_export_reset_rotation") == 0:
+            if obj_info_after.active_obj.lr_object_export_settings.get("lr_export_reset_rotation") == 0:
                 pass
             else:
                 obj_info_after.active_obj.rotation_euler = 0,0,0
 
             obj_info_after.deselect_ignored_objects() #Deselect object which are marked as Ignored.        
 
+            if self.export_for_mask == True:
+                obj_info_after.material_override()
+                obj_info_after.remove_all_but_one_uv()
 
 
 
@@ -337,10 +342,6 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
            #--- NAMING END ---
 
             #--- CLEANUP ---
-    
-            #Delete selected objects
-            #bpy.ops.object.delete(use_global=False)
-
             obj_info_after.remove_objects()
 
             # Restore obj names
@@ -389,13 +390,6 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
         for obj in store_selection:
             obj.select_set(True)
         bpy.context.view_layer.objects.active = store_active_selection
-
-
-
-
-            
-
-
 
         
         return {'FINISHED'}

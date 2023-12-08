@@ -38,7 +38,10 @@ class SelectionCapture():
         self.selected_objs_data = f7(data_temp) 
         for data in self.selected_objs_data:
             self.selected_objs_data_names.append(data.name)
-    
+
+
+    def __repr__(self) -> str:
+        return str(self.selected_objs_names)   
 
     def make_selection(self):
         '''Will select only objects in this class instance. Preserves active obj. Will deselect everything before.'''
@@ -74,10 +77,6 @@ class SelectionCapture():
                     bpy.ops.object.modifier_apply(modifier=modifier.name, report=False, merge_customdata=True, single_user=True)
 
         bpy.context.view_layer.objects.active = store_active_obj
-
-
-    def __repr__(self) -> str:
-        return str(self.selected_objs_names)
 
     def restore_object_names(self, name_list = None):
         if name_list == None:
@@ -117,3 +116,58 @@ class SelectionCapture():
     def remove_objects(self):
         for obj in self.selected_objs:
             bpy.data.objects.remove(obj, do_unlink=True)
+
+    def material_override(self):
+        '''Removes all materials and assigns one provided in obj parameter'''
+
+        for obj in self.selected_objs: 
+
+            new_mat_name=obj.lr_object_export_settings.get('lr_mat_override_mask')
+            
+            if new_mat_name == '' or new_mat_name == None:
+                continue
+            else:
+                new_mat = bpy.data.materials.get(new_mat_name)
+                if new_mat is None:
+                    new_mat = bpy.data.materials.new(name=new_mat_name)
+                
+                obj.data = obj.data.copy() #making the object unique so i wont affect the existing one
+                obj.data.materials.clear()
+
+                # Add the first material slot back
+                obj.data.materials.append(new_mat)
+
+            #If object is in collection containing '_ID' assign material.
+            #     if 'occluder' in collection_name_lower:
+            #         if mat_occluder_name not in all_mats:
+            #             mat_occluder = bpy.data.materials.new(name=mat_occluder_name)
+            #         if link == 'OBJECT':
+            #             obj.material_slots[0].material = bpy.data.materials[str(mat_occluder_name)]
+            #         if link == 'DATA':
+            #             obj.data.materials[0] = bpy.data.materials[mat_occluder_name]   
+
+
+    def remove_all_but_one_uv(self):
+        for obj in self.selected_objs:
+            keep_uv_name=obj.lr_object_export_settings.get('lr_uv_isolate_mask')
+            
+            if keep_uv_name == '' or keep_uv_name == None:
+                continue
+
+            else:
+                print(f'{keep_uv_name=}')
+                obj.data = obj.data.copy()
+                dat = obj.data
+                count = 0
+                if keep_uv_name in dat.uv_layers: 
+                    while len(dat.uv_layers) > 1:
+                        if dat.uv_layers[count].name == keep_uv_name:
+                            count+=1
+                            continue
+                        else:
+                            dat.uv_layers.remove(dat.uv_layers[count])
+                else:
+                    while len(dat.uv_layers) > 1:
+                        dat.uv_layers.remove(dat.uv_layers[1]) 
+
+
