@@ -27,7 +27,7 @@ bl_info = {
 addon_name = 'lr_export'
 
 from .operators.operators import OBJECT_OT_lr_hierarchy_exporter, OBJECT_OT_store_object_data_json,OBJECT_OT_lr_pack_uvs
-from .operators.wrappers import lr_export_one_material,lr_exportformask
+# from .operators.wrappers import lr_export_one_material,lr_exportformask
 from bpy.props import IntProperty, CollectionProperty, StringProperty,FloatVectorProperty,BoolProperty,EnumProperty
 
 # Properties 
@@ -47,6 +47,16 @@ class LR_ExportSettings_Scene(bpy.types.PropertyGroup):
     lr_assembly_replace_file: bpy.props.BoolProperty(name="Replace File", default=True)
     lr_assembly_filename: bpy.props.StringProperty(name="JSON filename", default = 'Assembly')
     
+
+
+
+    
+
+                # unwrap_method = 'ANGLE_BASED', 
+
+
+
+
     # name_to_uv_index_set: bpy.props.StringProperty(name="  Name", description="Set uv index by name", default="UVMap Name", maxlen=1024,)
     # uv_map_rename: bpy.props.StringProperty(name="  To", description="Rename uv on selected objects", default="New Name", maxlen=1024,)
     # uv_map_delete_by_name: bpy.props.StringProperty(name="  Name", description="Name of the UV Map to delete on selected objects", default="UV Name", maxlen=1024,)
@@ -116,6 +126,28 @@ class LR_ExportSettings_Object(bpy.types.PropertyGroup):
         default=True
         )
 
+
+    #UV Manipulation settings
+    uvs_index: bpy.props.IntProperty(name="UV Index", description="Operations below will be applied to this Index. If index is missing it will be added automtically. Duplicates UV 1", default=2, min = 1, soft_max = 5)
+    
+    uvs_unwrap: bpy.props.BoolProperty(name="Unwrap UVs",description= 'Unwrap UVs during export', default=False)
+    
+
+    uvs_unwrap_method: bpy.props.EnumProperty(name= 'Method', 
+                                              description= '', 
+                                              items= [('ANGLE_BASED', 'Angle Based',''),
+                                                      ('CONFORMAL', 'Conformal','')])
+    
+    uvs_unwrap_margin: bpy.props.FloatProperty(name="Unwrap Margin", default=0.001, min = 0, max = 1)
+
+    uvs_average_scale: bpy.props.BoolProperty(name="Average UVs",description= 'Average scale on UVs during export', default=False)
+    
+    uvs_pack: bpy.props.BoolProperty(name="Pack UVs",description= 'Pack UVs during export', default=False)
+    uvs_pack_margin: bpy.props.FloatProperty(name="Pack Margin", default=0.001, min = 0, max = 1)
+
+
+
+
     # lr_export_add_missing_hp:bpy.props.BoolProperty(
     #     name="Add missing HP",
     #     description=('Adds missing HP objects during export for baking. Detects _LP and _HP suffix.'),
@@ -174,9 +206,7 @@ class VIEW3D_PT_lr_export(bpy.types.Panel):
         row.prop(lr_export_settings_scene, "export_hidden")
         row.prop(lr_export_settings_scene, "add_missing_hp")    
         
-        
-
-
+             
 
 
         layout = self.layout.box()
@@ -205,10 +235,30 @@ class VIEW3D_PT_lr_export(bpy.types.Panel):
             row.prop(context.object.lr_object_export_settings,'lr_export_reset_position')
             row.prop(context.object.lr_object_export_settings,'lr_export_reset_rotation')
 
-        # row = layout.row(align=True)
 
-            
-        # row = layout.row(align=True)
+        # # ------------ UV Manipulation ------------ ONLY IN Blender 4.1
+        
+        # header, panel = layout.panel("my_panel_id", default_closed=True)
+        # header.label(text="UV Edit")
+        # if bpy.context.object.parent == None: #Setting is avaliable on parent object only
+        #     if panel:
+        #         panel.prop(lr_object_export_settings, "uvs_index") 
+        #         panel.prop(lr_object_export_settings, "uvs_unwrap") 
+        #         if lr_object_export_settings.uvs_unwrap:
+        #             panel.prop(lr_object_export_settings, "uvs_unwrap_method") 
+        #             panel.prop(lr_object_export_settings, "uvs_unwrap_margin") 
+
+        #         panel.prop(lr_object_export_settings, "uvs_average_scale") 
+        #         panel.prop(lr_object_export_settings, "uvs_pack") 
+                
+        #         if lr_object_export_settings.uvs_pack:
+        #             panel.prop(lr_object_export_settings, "uvs_pack_margin")
+        # else:
+        #     if panel:
+        #         panel.label(text="Set on parent object.")
+
+
+
 
         
         layout = self.layout.box()
@@ -224,8 +274,8 @@ class VIEW3D_PT_lr_export(bpy.types.Panel):
         # row = layout.column_flow()
         # row.scale_y = 1
         # row.operator("object.lr_export_one_material", text="Export one Mat", icon = 'EXPORT')
-        
-        
+
+
         row = layout.column(align=True)
         row.scale_y = 1
         op = row.operator("object.lr_exporter_export", text="Export for mask", icon = 'EXPORT')
@@ -239,6 +289,53 @@ class VIEW3D_PT_lr_export(bpy.types.Panel):
 
         row.separator()
         
+
+class VIEW3D_PT_lr_Export_UV_Mainpulation(bpy.types.Panel):
+    bl_label = "UV Edit"
+    bl_idname = "OBJECT_PT_lr_export_uv_manipulation"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'LR Export'
+    bl_parent_id = "OBJECT_PT_lr_export"
+        
+    # @classmethod
+    # def poll(cls, context):
+
+    #     if context.object.lr_render2texture.render_normal or context.scene.lr_render2texture.render_normal_combined:
+    #         ret =  True
+    #     else:
+    #         ret = False
+    #     return ret
+
+    def draw(self, context):
+
+        lr_export_settings_scene = context.scene.lr_export_settings_scene
+        lr_object_export_settings = context.object.lr_object_export_settings
+        layout = self.layout.box()
+        # layout.label(text="Scene Settings:")
+        
+        row = layout.column()
+        # row.prop(lr_export_settings_scene, "export_sm_prefix", slider=True)
+        # row.prop(lr_export_settings_scene, "export_sm_suffix")
+
+        if bpy.context.object.parent == None: #Setting is avaliable on parent object only
+
+            row.prop(lr_object_export_settings, "uvs_index") 
+            row.prop(lr_object_export_settings, "uvs_unwrap") 
+            if lr_object_export_settings.uvs_unwrap:
+                row.prop(lr_object_export_settings, "uvs_unwrap_method") 
+                row.prop(lr_object_export_settings, "uvs_unwrap_margin") 
+
+            row.prop(lr_object_export_settings, "uvs_average_scale") 
+            row.prop(lr_object_export_settings, "uvs_pack") 
+            
+            if lr_object_export_settings.uvs_pack:
+                row.prop(lr_object_export_settings, "uvs_pack_margin")
+        else:  
+            row.label(text="Set on parent object.")
+
+
+
 
 
 class VIEW3D_PT_lr_export_assembly(bpy.types.Panel):
@@ -269,9 +366,9 @@ classes = [LR_ExportSettings_Scene,
            OBJECT_OT_lr_hierarchy_exporter,
            VIEW3D_PT_lr_export,#VIEW3D_PT_ObjectProperties,
            VIEW3D_PT_lr_export_assembly,
+           VIEW3D_PT_lr_Export_UV_Mainpulation,
            OBJECT_OT_store_object_data_json,
-           lr_export_one_material,
-           lr_exportformask,OBJECT_OT_lr_pack_uvs]
+           OBJECT_OT_lr_pack_uvs]
 
 def register():
     for cls in classes:

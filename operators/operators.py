@@ -181,7 +181,6 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
                     bpy.context.view_layer.objects.active = act_obj
 
 
-
                     # Create a new HP using the data from the LP object
                     hp_obj = lp_obj.copy()
                     hp_obj.name = obj_name+hp_suffix
@@ -190,7 +189,6 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
                     #hp_obj.data.shade_smooth()
                     #hp_obj.data.edges.foreach_set('use_edge_sharp',[False]*len(hp_obj.data.edges)) #Remove all sharp edges
                     bpy.context.collection.objects.link(hp_obj)
-
 
                     #Parent duplicated obj to HP Root
                     hp_obj.parent = hp_root[0]
@@ -206,7 +204,6 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
             else:
                 message = f'At laest two objects need to be selected.'
                 self.report({'INFO'}, message)
-
 
         for obj_evaluated in objects_to_evaluate:         
             time_start = time.time()
@@ -250,10 +247,10 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
 
             #--- PREPARATION ---
             #After duplication Blender automatically selects nevely created objects
-            bpy.ops.object.duplicate(linked=True)
+            bpy.ops.object.duplicate(linked=True) #All obj properties are copied during ops.duplicate()
             
             obj_info_after = utils.SelectionCapture()
-       
+
 
             #Naming objects
             
@@ -277,7 +274,6 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
             else:
                 obj_info_after.active_obj.location = 0,0,0
             
-
             #Reset rotation
             if obj_info_after.active_obj.lr_object_export_settings.get("lr_export_reset_rotation") == 0:
                 pass
@@ -286,10 +282,19 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
 
             obj_info_after.deselect_ignored_objects() #Deselect object which are marked as Ignored.        
 
+            if obj_evaluated.lr_object_export_settings.uvs_unwrap or obj_evaluated.lr_object_export_settings.uvs_pack or obj_evaluated.lr_object_export_settings.uvs_average_scale:
+                obj_info_after.uv_edit(uv_index=obj_evaluated.lr_object_export_settings.uvs_index,
+                                    unwrap= obj_evaluated.lr_object_export_settings.uvs_unwrap,
+                                    unwrap_method= obj_evaluated.lr_object_export_settings.uvs_unwrap_method,
+                                    unwrap_margin= obj_evaluated.lr_object_export_settings.uvs_unwrap_margin,
+                                    average_scale= obj_evaluated.lr_object_export_settings.uvs_average_scale,
+                                    pack_islands= obj_evaluated.lr_object_export_settings.uvs_pack,
+                                    pack_margin= obj_evaluated.lr_object_export_settings.uvs_pack_margin)
+
+
             if self.export_for_mask == True:
                 obj_info_after.material_override()
                 obj_info_after.remove_all_but_one_uv()
-
 
 
             #--- NAMING FBX ---
@@ -305,7 +310,7 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
 
             object_subbolder = obj_info_after.active_obj.lr_object_export_settings.get('lr_exportsubfolder')
             if object_subbolder == None:
-                object_subbolder = '' 
+                object_subbolder = ''
 
                 
             export_path = os.path.join(bpy.path.abspath(ui_export_path), object_subbolder)
@@ -314,7 +319,8 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
                 os.makedirs(export_path)
 
 
-            bpy.ops.export_scene.fbx(filepath = str(export_file), 
+            bpy.ops.export_scene.fbx(filepath = str(export_file),
+                                     check_existing=False,
                                      use_selection=True,
                                      prioritize_active_color=True,
                                      colors_type='SRGB',
@@ -416,9 +422,11 @@ class OBJECT_OT_store_object_data_json(bpy.types.Operator):
             self.report({'ERROR'}, 'Please save blender file. Aborting.')
             return {'FINISHED'}
 
-
+        lr_export_settings_scene = bpy.context.scene.lr_export_settings_scene
         import json  
 
+
+        
         active_obj = bpy.context.selected_objects[0]
         active_obj_children = active_obj.children_recursive
         object_list = active_obj_children
@@ -535,7 +543,6 @@ class OBJECT_OT_lr_pack_uvs(bpy.types.Operator):
 
     def execute(self, context): 
         '''File is saved next to a .blend file'''
-        
 
         mode_store = bpy.context.mode
         if mode_store != 'OBJECT':
@@ -544,6 +551,9 @@ class OBJECT_OT_lr_pack_uvs(bpy.types.Operator):
         selected_objects = bpy.context.selected_objects
         selected_objects_MESH = [i for i in selected_objects if i.type=='MESH']
         store_active_uv_map = []
+        if len(selected_objects_MESH) == 0:
+            return {'FINISHED'}
+        
         for index,obj in enumerate(selected_objects_MESH):
 
             #Store active uv map
@@ -555,8 +565,8 @@ class OBJECT_OT_lr_pack_uvs(bpy.types.Operator):
             uv_maps_amnt = len(uv_maps)-1 #Starting from 0
 
             if uv_maps_amnt == -1:
-                message = f'At least on UV set needs to be present'
-                self.report({'INFO'}, message)
+                message = f'Select object.'
+                self.report({'WARNING'}, message)
                 return {'FINISHED'}
 
             #If uv with this name present rename it
@@ -659,6 +669,10 @@ class OBJECT_OT_lr_pack_uvs(bpy.types.Operator):
             bpy.ops.object.mode_set(mode='OBJECT')
         else:
             bpy.ops.object.mode_set(mode='OBJECT')
+        
+        message = f'Done. File created next to a .blend file.'
+        self.report({'INFO'}, message)
+
 
         return {'FINISHED'}
 

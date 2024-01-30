@@ -29,10 +29,14 @@ class SelectionCapture():
         data_temp = []
         self.active_obj = bpy.context.object
         self.selected_objs = bpy.context.selected_objects
+        self.selected_objs_filtered = []
+        
         for obj in self.selected_objs:
             self.selected_objs_names.append(obj.name)
             if obj.type == 'MESH':
                 data_temp.append(obj.data)
+            if obj.lr_object_export_settings.object_mode == 'EXPORTED':
+                self.selected_objs_filtered.append(obj)
         
         #Remove duplicate data
         self.selected_objs_data = f7(data_temp) 
@@ -146,7 +150,6 @@ class SelectionCapture():
             #         if link == 'DATA':
             #             obj.data.materials[0] = bpy.data.materials[mat_occluder_name]   
 
-
     def remove_all_but_one_uv(self):
         for obj in self.selected_objs:
             keep_uv_name=obj.lr_object_export_settings.get('lr_uv_isolate_mask')
@@ -155,8 +158,7 @@ class SelectionCapture():
                 continue
 
             else:
-                print(f'{keep_uv_name=}')
-                obj.data = obj.data.copy()
+                obj.data = obj.data.copy() #Remove Instancing
                 dat = obj.data
                 count = 0
                 if keep_uv_name in dat.uv_layers: 
@@ -170,4 +172,98 @@ class SelectionCapture():
                     while len(dat.uv_layers) > 1:
                         dat.uv_layers.remove(dat.uv_layers[1]) 
 
+    def add_uv_index(self):
+        pass
 
+
+    def uv_edit(self,
+            
+                uv_index, 
+                unwrap = False, 
+                unwrap_method = 'ANGLE_BASED', 
+                unwrap_margin = 0.001,
+                
+                average_scale = False, 
+                
+                pack_islands = False,
+                pack_margin = 0.001):
+        
+        '''
+        Optionally unwraps, averages or packs UVs in specified index on stored objects.
+        unwrap_method 'ANGLE_BASED', 'CONFORMAL'
+        '''
+
+        
+        uv_index -= 1 #From 0
+
+        check_missing_uv_id = False
+
+        store_sel = bpy.context.selected_objects
+        store_active = bpy.context.active_object
+        bpy.context.view_layer.objects.active = self.selected_objs_filtered[0]
+        store_mode = bpy.context.mode
+        
+        bpy.ops.object.select_all(action='DESELECT')
+        
+        for obj in self.selected_objs_filtered:
+            if obj.type == 'MESH':
+                obj.select_set(True)
+
+        #Make single user and Apply modifiers
+        bpy.ops.object.make_single_user(object=True, obdata=True, material=False, animation=False, obdata_animation=False)
+        bpy.ops.object.convert(target='MESH')
+        
+
+        for obj in self.selected_objs_filtered:
+            if obj.type != 'MESH':
+                continue
+
+            # store_uv_index = obj.data.uv_layers.active_index
+            uv_layer_amount = ((len(obj.data.uv_layers))-1) #From 0
+
+            if uv_index > uv_layer_amount:
+                check_missing_uv_id = True
+                obj.data.uv_layers[0].active = True #Copy from 0 if destination UV not present
+                while len(obj.data.uv_layers)-1 < uv_index:
+                    obj.data.uv_layers.new(name='UVMap', do_init = True)
+        
+            obj.data.uv_layers[uv_index].active = True
+
+
+        if check_missing_uv_id:
+            print(f'Some objects are missing UV #{uv_index}. Duplicating UV 0.')
+
+        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.mesh.select_all(action='SELECT')
+        bpy.ops.uv.select_all(action='SELECT')
+        
+        if unwrap == True:
+            bpy.ops.uv.unwrap(method=unwrap_method, 
+                            fill_holes=True, 
+                            correct_aspect=True, 
+                            use_subsurf_data=False, 
+                            margin_method='SCALED', 
+                            margin=0.001)
+
+        if average_scale == True:
+            bpy.ops.uv.average_islands_scale(scale_uv=False, 
+                                            shear=False)
+
+        if pack_islands == True:
+            bpy.ops.uv.pack_islands(udim_source ='CLOSEST_UDIM', 
+                                    rotate = True,
+                                    rotate_method = 'ANY',
+                                    scale = True,
+                                    merge_overlap = False,
+                                    margin_method = 'SCALED',
+                                    margin = pack_margin,
+                                    pin = False,
+                                    pin_method = 'LOCKED',
+                                    shape_method = 'CONCAVE')
+
+        bpy.ops.object.mode_set(mode=store_mode)
+        for obj in bpy.data.objects:
+            obj.select_set(False)
+        for obj in store_sel:
+            obj.select_set(True)
+        bpy.context.view_layer.objects.active = store_active
