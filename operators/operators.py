@@ -686,8 +686,10 @@ def material_cleanup(objs,remove_old = True):
         for material_slot in obj.material_slots: 
             if material_slot.material.name[-3:].isdigit() and material_slot.material.name[-4] == ".":
                 if material_slot.material.name[:-4] in scene_material_names:
-                    material_slot.material = bpy.data.mateiral.get(material_slot.material.name[:-4])
-                    materials_to_remove.append(material_slot.material)
+                    if material_slot.material not in materials_to_remove:
+                        materials_to_remove.append(material_slot.material)
+                    material_slot.material = bpy.data.materials.get(material_slot.material.name[:-4])
+                    
     
     if len(materials_to_remove)>0:
         if remove_old == True:
@@ -711,25 +713,66 @@ class OBJECT_OT_lr_reimport(bpy.types.Operator):
 
         objs_selected = bpy.context.selected_objects
 
-
+        
+        
         for obj in objs_selected:
+
             if obj.lr_object_export_settings.lr_import_path == "":
                 continue
             else:
                 file_path = obj.lr_object_export_settings.lr_import_path
             all_children = obj.children_recursive
 
+            if lr_export_settings_scene.lr_import_remove_mesh:
+                all_children_data = list({child.data for child in all_children if not None})
+
+
+
+            # if lr_export_settings_scene.lr_import_remove_mesh == False:
+            bpy.ops.object.select_all(action='DESELECT')
+
             for child in all_children:
-                child_mesh = child.data
+                # bpy.data.objects.remove(child,do_unlink=True, do_id_user=True, do_ui_user=True)#SLOW AF takes about 1min with ~2k meshes
+                child.select_set(True)
 
-                bpy.data.objects.remove(child,do_unlink=True, do_id_user=True, do_ui_user=True)
+            bpy.ops.object.delete(use_global=False) #This is 10x faster with 2k meshes. (batch deletes)
+            bpy.ops.object.select_all(action='DESELECT')
 
-                if lr_export_settings_scene.lr_import_remove_mesh:
-                    if child_mesh:
-                        bpy.data.meshes.remove(child_mesh, do_unlink=True, do_id_user=True, do_ui_user=True)#Also remove mesh
+
+            if lr_export_settings_scene.lr_import_remove_mesh: #takes ~25s with 2k meshes
+                for data in all_children_data:
+                    if data:
+                        bpy.data.meshes.remove(data, do_unlink=True, do_id_user=True, do_ui_user=False)#Also remove mesh
+
 
             # Import the FBX file
-            bpy.ops.import_scene.fbx(filepath=bpy.path.abspath(file_path))
+            bpy.ops.import_scene.fbx(filepath=bpy.path.abspath(file_path), 
+                                    #  directory="", 
+                                    #  filter_glob="*.fbx", 
+                                    #  files=[], 
+                                    #  ui_tab='MAIN', 
+                                     use_manual_orientation=False, 
+                                     global_scale=1, 
+                                     bake_space_transform=False, 
+                                     use_custom_normals=True, 
+                                     colors_type='SRGB', 
+                                     use_image_search=True, 
+                                     use_alpha_decals=False, 
+                                     decal_offset=0, 
+                                     use_anim=False, 
+                                     anim_offset=1, 
+                                     use_subsurf=False, 
+                                     use_custom_props=True, 
+                                     use_custom_props_enum_as_string=True, 
+                                     ignore_leaf_bones=False, 
+                                     force_connect_children=False, 
+                                     automatic_bone_orientation=False, 
+                                     primary_bone_axis='Y', 
+                                     secondary_bone_axis='X', 
+                                     use_prepost_rot=True, 
+                                     axis_forward='-Z', 
+                                     axis_up='Y')
+            
 
             imported_objs = bpy.context.selected_objects
 
@@ -741,8 +784,9 @@ class OBJECT_OT_lr_reimport(bpy.types.Operator):
                 if imported_obj.parent:
                     imported_obj.select_set(False)
                 else:
+                    pass
                     # imported_obj.location = obj.location
-                    imported_obj.scale = obj.scale
+                    # imported_obj.scale = obj.scale #If scene size is 0.01 object is importex with 100 size. If this option is enabled then 
                     imported_obj.parent = obj
 
         bpy.ops.object.select_all(action='DESELECT')

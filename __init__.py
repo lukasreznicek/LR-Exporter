@@ -50,7 +50,7 @@ class LR_ExportSettings_Scene(bpy.types.PropertyGroup):
     
 
     #Importer
-    lr_import_remove_mesh: bpy.props.BoolProperty(name="Remove mesh as well",description= 'During reimport additionally delete mesh objects from .blend file', default=True)# type: ignore
+    lr_import_remove_mesh: bpy.props.BoolProperty(name="Remove mesh as well",description= 'During reimport additionally delete mesh objects from .blend file. Slow with losts of meshes. When disabled is best to purge orphan data manually. Often faster. \n\nObject IS deleted even when this option is Off', default=False)# type: ignore
     lr_import_material_cleanup: bpy.props.BoolProperty(name="Clean Materials",description= 'Default Blender import always include materials. If scene has material with the same name it will be duplicated with .001 suffix. This will reassigns the material to the one without suffix and removes the suffix one', default=True)# type: ignore
 
     
@@ -393,8 +393,9 @@ class VIEW3D_PT_lr_importer(bpy.types.Panel):
             header, panel = layout.panel("my_panel_id", default_closed=True)
             header.label(text="Settings Scene")
             if panel:
-                panel.prop(lr_export_settings_scene,'lr_import_remove_mesh', text="Remove Mesh")
                 panel.prop(lr_export_settings_scene,'lr_import_material_cleanup', text="Material Cleanup")
+                panel.prop(lr_export_settings_scene,'lr_import_remove_mesh', text="Remove Mesh")
+                
                 # panel.label(text="Success")
         
         if context.object and context.object.lr_object_export_settings.lr_import_path != "":
