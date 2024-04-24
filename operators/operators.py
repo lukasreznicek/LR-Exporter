@@ -402,8 +402,6 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
 
 
 
-
-
 class OBJECT_OT_store_object_data_json(bpy.types.Operator):
     bl_idname = "object.lr_store_object_data_json"
     bl_label = "Creates a list of object names,location,rotation and scale."
@@ -678,9 +676,85 @@ class OBJECT_OT_lr_pack_uvs(bpy.types.Operator):
 
 
 
+def material_cleanup(objs,remove_old = True):
+    scene_material_names = [mat.name for mat in bpy.data.materials]
+    materials_to_remove = []
+    for obj in objs:
+        if len(obj.material_slots) == 0:
+            continue 
+
+        for material_slot in obj.material_slots: 
+            if material_slot.material.name[-3:].isdigit() and material_slot.material.name[-4] == ".":
+                if material_slot.material.name[:-4] in scene_material_names:
+                    material_slot.material = bpy.data.mateiral.get(material_slot.material.name[:-4])
+                    materials_to_remove.append(material_slot.material)
+    
+    if len(materials_to_remove)>0:
+        if remove_old == True:
+            for material in materials_to_remove:
+                bpy.data.materials.remove(material)
+
+class OBJECT_OT_lr_reimport(bpy.types.Operator):
+    """ Creates packed UVMap. !Will replace existing UVs"""
+    bl_idname = "object.lr_import"
+    bl_label = "Pack"
+    bl_options = {'REGISTER', 'UNDO'}
 
 
+    
+    def execute(self, context): 
+        '''File is saved next to a .blend file'''
+        timer_start = time.time()
 
+        lr_export_settings_object = context.object.lr_object_export_settings
+        lr_export_settings_scene = context.scene.lr_export_settings_scene
+
+        objs_selected = bpy.context.selected_objects
+
+
+        for obj in objs_selected:
+            if obj.lr_object_export_settings.lr_import_path == "":
+                continue
+            else:
+                file_path = obj.lr_object_export_settings.lr_import_path
+            all_children = obj.children_recursive
+
+            for child in all_children:
+                child_mesh = child.data
+
+                bpy.data.objects.remove(child,do_unlink=True, do_id_user=True, do_ui_user=True)
+
+                if lr_export_settings_scene.lr_import_remove_mesh:
+                    if child_mesh:
+                        bpy.data.meshes.remove(child_mesh, do_unlink=True, do_id_user=True, do_ui_user=True)#Also remove mesh
+
+            # Import the FBX file
+            bpy.ops.import_scene.fbx(filepath=bpy.path.abspath(file_path))
+
+            imported_objs = bpy.context.selected_objects
+
+            if lr_export_settings_scene.lr_import_material_cleanup:
+                material_cleanup(imported_objs,remove_old=True)
+
+            for imported_obj in imported_objs:
+                
+                if imported_obj.parent:
+                    imported_obj.select_set(False)
+                else:
+                    # imported_obj.location = obj.location
+                    imported_obj.scale = obj.scale
+                    imported_obj.parent = obj
+
+        bpy.ops.object.select_all(action='DESELECT')
+        for obj in objs_selected:
+            obj.select_set(True)
+
+        timer_end = time.time() - timer_start
+        message = f'In: {timer_end:.3f}s.'
+        self.report({'INFO'}, message)
+
+
+        return {'FINISHED'}
 
 
 
