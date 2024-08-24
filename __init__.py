@@ -108,7 +108,7 @@ class LR_ExportSettings_Object(bpy.types.PropertyGroup):
     lr_mat_override_mask:bpy.props.StringProperty(
         name="Mat Override",
         description=(
-            '(Optional, Object Setting)\n\nRemoves all materials and assigns a new one.\nIf empty, nothing is changed'
+            '(Optional, Object Setting)\n\nRemoves all materials and assigns a new one.\nIf empty, nothing is changed\n-Set only on child objects and not parent empty'
             ),
         # override={'LIBRARY_OVERRIDABLE'},
         maxlen=64,
@@ -119,7 +119,7 @@ class LR_ExportSettings_Object(bpy.types.PropertyGroup):
     lr_uv_isolate_mask:bpy.props.StringProperty(
         name="Keep UV",
         description=(
-            '(Optional, Object Setting)\n\nDeletes all UVs except one specified.\nIf empty, nothing is changed'
+            '(Optional, Object Setting)\n\nDeletes all UVs except one specified.\n-If empty, nothing is changed.\n-All child objects take highest parent value if not specified'
             ),
         maxlen=64,
         default="",

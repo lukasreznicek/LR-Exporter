@@ -53,6 +53,7 @@ def change_local_view_on_objects(objects:list,viewport,add_to_local_view=True):
         for obj in objects:
             obj.local_view_set(viewport, add_to_local_view)
 
+
 class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
     """Exports selected object and its children (or parents) into FBX file.\nOne selected object = One .FBX. Multiple object selection will result in multiple .FBX"""
     
@@ -401,7 +402,6 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
         return {'FINISHED'}
 
 
-
 class OBJECT_OT_store_object_data_json(bpy.types.Operator):
     bl_idname = "object.lr_store_object_data_json"
     bl_label = "Creates a list of object names,location,rotation and scale."
@@ -485,7 +485,6 @@ class OBJECT_OT_store_object_data_json(bpy.types.Operator):
 
 
         return {'FINISHED'}
-
 
 
 class OBJECT_OT_lr_pack_uvs(bpy.types.Operator):
@@ -675,7 +674,6 @@ class OBJECT_OT_lr_pack_uvs(bpy.types.Operator):
         return {'FINISHED'}
 
 
-
 def material_cleanup(objs,remove_old = True):
     scene_material_names = [mat.name for mat in bpy.data.materials]
     materials_to_remove = []
@@ -695,6 +693,7 @@ def material_cleanup(objs,remove_old = True):
         if remove_old == True:
             for material in materials_to_remove:
                 bpy.data.materials.remove(material)
+
 
 class OBJECT_OT_lr_reimport(bpy.types.Operator):
     """ Creates packed UVMap. !Will replace existing UVs"""

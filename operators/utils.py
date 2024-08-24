@@ -25,13 +25,16 @@ class SelectionCapture():
         self.selected_objs_data = []
         self.selected_objs_names = []
         self.selected_objs_data_names = []
-
+        self.root_parent = None
         data_temp = []
         self.active_obj = bpy.context.object
-        self.selected_objs = bpy.context.selected_objects
-        self.selected_objs_filtered = []
+        self.selected_objs = bpy.context.selected_objects #All selected objects, including active object if its selected
+        self.selected_objs_filtered = [] #All objects that are marked as 'EXPORTED', Including non 'MESH'
         
         for obj in self.selected_objs:
+            if obj.parent == None:
+                self.root_parent = obj
+
             self.selected_objs_names.append(obj.name)
             if obj.type == 'MESH':
                 data_temp.append(obj.data)
@@ -151,9 +154,23 @@ class SelectionCapture():
             #             obj.data.materials[0] = bpy.data.materials[mat_occluder_name]   
 
     def remove_all_but_one_uv(self):
-        for obj in self.selected_objs:
+        
+        parent_has_uv_name = False
+        parent_preserve_uv_name= self.root_parent.lr_object_export_settings.get('lr_uv_isolate_mask')
+
+        if parent_preserve_uv_name != None or parent_preserve_uv_name != '':
+            parent_has_uv_name = True
+
+        for obj in self.selected_objs_filtered:
+            if obj.type != 'MESH':
+                continue
+
             keep_uv_name=obj.lr_object_export_settings.get('lr_uv_isolate_mask')
             
+            if keep_uv_name == None or keep_uv_name == '' and parent_has_uv_name != False: #Take parent info if child has nothing.
+                keep_uv_name = parent_preserve_uv_name
+
+
             if keep_uv_name == '' or keep_uv_name == None:
                 continue
 
