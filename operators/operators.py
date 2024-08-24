@@ -62,7 +62,7 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
     
     export_hidden:bpy.props.BoolProperty(name="Export Hidden", description="Exports all objects in hierarchy including hidden objects.", default=True, options={'HIDDEN'})
-    export_for_mask:bpy.props.BoolProperty(name="Export For Mask", description="Exports object with material and UV override in mind", default=True, options={'HIDDEN'})
+    export_for_mask:bpy.props.BoolProperty(name="Export For Mask", description="Exports object with material and UV override in mind", default=False, options={'HIDDEN'})
 
 
     def execute(self, context): 
