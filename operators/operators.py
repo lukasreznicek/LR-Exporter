@@ -212,7 +212,6 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
             if obj_evaluated.lr_object_export_settings.object_mode == 'NOT_EXPORTED':
                 continue
 
-
             bpy.ops.object.select_all(action='DESELECT')
               
             # bpy.ops.object.duplicates_make_real(use_hierarchy=True) WILL BE NEEDED FOR GEOMETRY NODES
@@ -224,7 +223,10 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
             object_hidden = []
             object_hidden_in_viewport = []
 
-            for obj in parent_and_children:    
+            for obj in parent_and_children:
+                if obj.name not in bpy.context.view_layer.objects:
+                    continue
+                
                 if self.export_hidden == True: #Unhide objects before export if wanted.
 
                     if obj.hide_viewport == True:
@@ -281,7 +283,14 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
             else:
                 obj_info_after.active_obj.rotation_euler = 0,0,0
 
-            obj_info_after.deselect_ignored_objects() #Deselect object which are marked as Ignored.        
+
+            if self.export_for_mask:
+                obj_info_after.deselect_ignored_objects() #Deselect object which are marked as Ignored.
+                obj_info_after.material_override()
+                obj_info_after.remove_all_but_one_uv()     
+            else:
+                obj_info_after.deselect_ignored_objects() #Deselect object which are marked as Ignored and marked as for mask only.
+                obj_info_after.deselect_formask_objects()
 
             if obj_evaluated.lr_object_export_settings.uvs_unwrap or obj_evaluated.lr_object_export_settings.uvs_pack or obj_evaluated.lr_object_export_settings.uvs_average_scale:
                 obj_info_after.uv_edit(uv_index=obj_evaluated.lr_object_export_settings.uvs_index,
@@ -293,9 +302,9 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
                                     pack_margin= obj_evaluated.lr_object_export_settings.uvs_pack_margin)
 
 
-            if self.export_for_mask == True:
-                obj_info_after.material_override()
-                obj_info_after.remove_all_but_one_uv()
+            # if self.export_for_mask == True:
+            #     obj_info_after.material_override()
+            #     obj_info_after.remove_all_but_one_uv()
 
 
             #--- NAMING FBX ---
@@ -304,8 +313,15 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
             file_name = obj_info_after.active_obj.name
             
             prefix = lr_export_settings_scene.export_sm_prefix
+
+
             suffix = lr_export_settings_scene.export_sm_suffix
+            if self.export_for_mask:
+                suffix = suffix + lr_export_settings_scene.export_mask_sm_suffix
+            
             filename_prefix_suffix = prefix+file_name+suffix
+
+
             file_format = '.fbx'
 
 
@@ -325,7 +341,10 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
                                      use_selection=True,
                                      prioritize_active_color=True,
                                      colors_type='SRGB',
-                                     use_visible=False) 
+                                     use_visible=False,
+                                     use_custom_props=True,
+                                     use_metadata=True,
+                                     add_leaf_bones=False) 
 
             # bpy.ops.export_scene.fbx(
                 # filepath=GetExportFullpath(dirpath, filename),
@@ -397,7 +416,6 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
         for obj in store_selection:
             obj.select_set(True)
         bpy.context.view_layer.objects.active = store_active_selection
-
         
         return {'FINISHED'}
 

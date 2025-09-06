@@ -17,7 +17,7 @@ bl_info = {
     "author" : "Lukas Reznicek",
     "description" : "",
     "blender" : (2, 80, 0),
-    "version" : (1, 0, 0),
+    "version" : (1, 1, 0),
     "location" : "",
     "warning" : "",
     "category" : "Generic"
@@ -35,10 +35,14 @@ from bpy.props import IntProperty, CollectionProperty, StringProperty,FloatVecto
 # Is assigned by pointer property below in class registration.
 class LR_ExportSettings_Scene(bpy.types.PropertyGroup):
     
-    export_sm_prefix: bpy.props.StringProperty(name="Prefix", description="Prefix for exported file", default="SM_", maxlen=1024,)
-    export_sm_suffix:bpy.props.StringProperty(name="Suffix", description="Suffix for exported file", default="", maxlen=1024,)
+    export_sm_prefix: bpy.props.StringProperty(name="Prefix", description="Prefix for exported file", default="SM_", maxlen=1024)
+    export_sm_suffix:bpy.props.StringProperty(name="Suffix", description="Suffix for exported file", default="", maxlen=1024)
+    export_mask_sm_suffix:bpy.props.StringProperty(name="Obj Suffix", description="Suffix for exported mask file", default="_ForMask", maxlen=1024,)
     # export_mask_uv_name:bpy.props.StringProperty(name="UV", description="UV With this name will be kept", default="UV_All", maxlen=1024,)
-    export_path:bpy.props.StringProperty(name="Path", description="// = .blend file location\n//..\ = .blend file parent folder", default="//..\\", maxlen=1024,subtype='DIR_PATH')
+    export_path:bpy.props.StringProperty(name="Path", description="// = .blend file location\n//..\ = .blend file parent folder", default="//..\\", maxlen=1024,subtype='DIR_PATH',options={'PATH_SUPPORTS_BLEND_RELATIVE'})
+
+
+    
     export_type:bpy.props.EnumProperty(name= 'Export Type', description= '', items= [('OP1', 'Option 1',''),('OP2', 'Option 2',''),('OP3', 'Option 3','')])
     add_missing_hp: bpy.props.BoolProperty(name="Add Missing HP",description= 'Select one _LP and _HP object. Exporter goes through all children with _HP/_LP and matches them by name. Then adds missing _HP objects. \n Useful when some object dont need high poly but still need to be baked', default=False)
     export_full_hierarchy: bpy.props.BoolProperty(name="Full Hierarchy  ",description='True: Children and all parent objects are exported. FBX name/settings is taken from upper most object in hierarchy.\nFalse: Selected and children objects are exported', default=True)
@@ -89,7 +93,9 @@ class LR_ExportSettings_Object(bpy.types.PropertyGroup):
         items=[
             ("EXPORTED", "Exported", "Object is included in export if in hierarchy.","CHECKMARK",1),
             # ("PARENT","Export recursive","Export this object and its children","KEYINGSET",2),
-            ("NOT_EXPORTED","Ignored","Object is excluded from export.","X",3)],
+            ("NOT_EXPORTED","Ignored","Object is excluded from export.","X",3),
+            ("MASK_EXPORT","Mask Only","Object is exported only fro mask","MOD_MASK",4)
+            ],
             default="EXPORTED"
         ) # type: ignore
 
@@ -238,10 +244,7 @@ class VIEW3D_PT_lr_export(bpy.types.Panel):
 
         row = layout.row(align=True)  
         if context.object:
-            # row.prop(context.object.lr_object_export_settings,'object_mode')
-
-            # box.prop(context.object.lr_object_export_settings, 'object_mode', text="Object Mode")
-            row.prop(context.object.lr_object_export_settings, 'object_mode', text="Object Mode", icon='OBJECT_DATA', emboss=True, expand=True, icon_only=False)
+            row.prop(context.object.lr_object_export_settings, 'object_mode', text="Mode", icon='OBJECT_DATA', emboss=True, expand=False, icon_only=False)
             
 
             row = layout.column()
@@ -289,6 +292,7 @@ class VIEW3D_PT_lr_export(bpy.types.Panel):
         row = layout.row(align=True)
         row.scale_y = 2
         op_export = row.operator("object.lr_exporter_export", text="Export", icon = 'EXPORT')
+        op_export.export_for_mask = False
         op_export.export_hidden=lr_export_settings_scene.export_hidden
     
 
@@ -301,6 +305,7 @@ class VIEW3D_PT_lr_export(bpy.types.Panel):
         
         if context.object:
             row.alignment = 'RIGHT'
+            row.prop(lr_export_settings_scene, "export_mask_sm_suffix")
             row.prop(context.object.lr_object_export_settings,'lr_mat_override_mask')
             row.prop(lr_object_export_settings, "lr_uv_isolate_mask")
         

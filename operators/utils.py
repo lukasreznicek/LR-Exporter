@@ -30,7 +30,7 @@ class SelectionCapture():
         self.active_obj = bpy.context.object
         self.selected_objs = bpy.context.selected_objects #All selected objects, including active object if its selected
         self.selected_objs_filtered = [] #All objects that are marked as 'EXPORTED', Including non 'MESH'
-        
+        self.selected_objs_for_mask_only = []
         for obj in self.selected_objs:
             if obj.parent == None:
                 self.root_parent = obj
@@ -40,7 +40,8 @@ class SelectionCapture():
                 data_temp.append(obj.data)
             if obj.lr_object_export_settings.object_mode == 'EXPORTED':
                 self.selected_objs_filtered.append(obj)
-        
+            elif obj.lr_object_export_settings.object_mode == 'MASK_EXPORT':
+                self.selected_objs_for_mask_only.append(obj)
         #Remove duplicate data
         self.selected_objs_data = f7(data_temp) 
         for data in self.selected_objs_data:
@@ -61,6 +62,12 @@ class SelectionCapture():
         for obj in self.selected_objs:
             if obj.lr_object_export_settings.object_mode == 'NOT_EXPORTED':
                 obj.select_set(False)
+
+    def deselect_formask_objects(self):
+        for obj in self.selected_objs:
+            if obj.lr_object_export_settings.object_mode == 'MASK_EXPORT':
+                obj.select_set(False)
+
 
     def select_ignored_objects(self):
         for obj in self.selected_objs:
@@ -126,11 +133,27 @@ class SelectionCapture():
 
     def material_override(self):
         '''Removes all materials and assigns one provided in obj parameter'''
+        
+        
+        # Check if parent has a name
+        parent_has_material_name = False
+        parent_new_material_name= self.root_parent.lr_object_export_settings.get('lr_mat_override_mask')
 
-        for obj in self.selected_objs: 
+        if parent_new_material_name != None or parent_new_material_name != '':
+            parent_has_material_name = True
+        
+        objs_to_process = self.selected_objs_filtered + self.selected_objs_for_mask_only
+        
+        for obj in objs_to_process: 
+            if obj.type != 'MESH':
+                continue
 
-            new_mat_name=obj.lr_object_export_settings.get('lr_mat_override_mask')
+            new_mat_name = obj.lr_object_export_settings.get('lr_mat_override_mask')
             
+            if new_mat_name == None or new_mat_name == '' and parent_has_material_name != False: #Take parent info if child has nothing.
+                new_mat_name = parent_new_material_name
+
+
             if new_mat_name == '' or new_mat_name == None:
                 continue
             else:
@@ -161,7 +184,9 @@ class SelectionCapture():
         if parent_preserve_uv_name != None or parent_preserve_uv_name != '':
             parent_has_uv_name = True
 
-        for obj in self.selected_objs_filtered:
+        objs_to_process = self.selected_objs_filtered + self.selected_objs_for_mask_only
+        
+        for obj in objs_to_process:
             if obj.type != 'MESH':
                 continue
 
@@ -169,7 +194,6 @@ class SelectionCapture():
             
             if keep_uv_name == None or keep_uv_name == '' and parent_has_uv_name != False: #Take parent info if child has nothing.
                 keep_uv_name = parent_preserve_uv_name
-
 
             if keep_uv_name == '' or keep_uv_name == None:
                 continue
