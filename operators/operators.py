@@ -132,8 +132,8 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
 
         # ------------ ADD MISSING HP ------------
         if lr_export_settings_scene.add_missing_hp == True:
-            lp_suffix = '_LP'
-            hp_suffix = '_HP'
+            lp_suffix = '_lp'
+            hp_suffix = '_hp'
             
             if len(objects_to_evaluate) >= 2:
                 hp_root = []
@@ -142,19 +142,21 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
                 lp_names = []
                 hp_names = []
 
-                for selected_obj in objects_to_evaluate: 
-                    if selected_obj.name.endswith(lp_suffix):
+                for selected_obj in objects_to_evaluate:
+                    if selected_obj.type != 'EMPTY':
+                        continue
+                    if selected_obj.name.lower().endswith(lp_suffix):
                         lp_root.append(selected_obj)
                         for lp_obj in selected_obj.children_recursive:
                             if lp_obj.type == 'MESH':
-                                if lp_obj.name.endswith(lp_suffix):
+                                if lp_obj.name.lower().endswith(lp_suffix):
                                     lp_names.append(lp_obj.name.rsplit(lp_suffix, 1)[0])
 
-                    if selected_obj.name.endswith(hp_suffix):
+                    if selected_obj.name.lower().endswith(hp_suffix):
                         hp_root.append(selected_obj)
                         for hp_obj in selected_obj.children_recursive:
                             if hp_obj.type == 'MESH':
-                                if hp_obj.name.endswith(hp_suffix):
+                                if hp_obj.name.lower().endswith(hp_suffix):
                                     hp_names.append(hp_obj.name.rsplit(hp_suffix, 1)[0])                   
                 
                 lp_names_without_hp_obj_set = set(lp_names) - set(hp_names)
@@ -177,8 +179,11 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
 
                     act_obj = bpy.context.active_object
                     bpy.context.view_layer.objects.active = lp_obj
-                    for modifier in lp_obj.modifiers: # Apply all modifier
-                        bpy.ops.object.modifier_apply(modifier=modifier.name)
+
+                    # Might have to revert this:
+                    # for modifier in lp_obj.modifiers: # Apply all modifier
+                    #     bpy.ops.object.modifier_apply(modifier=modifier.name)
+
                     bpy.context.view_layer.objects.active = act_obj
 
 
@@ -205,6 +210,11 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
             else:
                 message = f'At laest two objects need to be selected.'
                 self.report({'INFO'}, message)
+
+
+
+
+
 
         for obj_evaluated in objects_to_evaluate:         
             time_start = time.time()
@@ -401,7 +411,6 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
                 message = f'Exported: {filename_prefix_suffix}. In: {time_elapsed:.3f}s'
                 self.report({'INFO'}, message)
             #--- CLEANUP END ---
-        
         
         # Additionally remove Created HPs
         if lr_export_settings_scene.add_missing_hp == True:

@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lr_exporter"          # replace with your desired distribution name
+version = "1.0.0"
+description = "My Python project"
+authors = [{name = "Lukas Reznicek"}]
+readme = "README.md"
+license = {text = "MIT"}
+
+[tool.setuptools.packages.find]
+# include the root package (with __init__.py) and the operators subfolder
+include = ["*"]
+exclude = ["__pycache__*", ".git*"]
+
+[tool.setuptools.package-data]
+# include any non-Python files if needed
+# "*" will include all files in packages, adjust if necessary
