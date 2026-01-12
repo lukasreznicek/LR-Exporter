@@ -259,7 +259,7 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
             obj_info_before = utils.SelectionCapture()
 
             #--- PREPARATION ---
-            #After duplication Blender automatically selects nevely created objects
+            #After duplication Blender automatically selects newly created objects
             bpy.ops.object.duplicate(linked=True) #All obj properties are copied during ops.duplicate()
             
             obj_info_after = utils.SelectionCapture()
@@ -280,6 +280,12 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
             #Remove any parents in case of exporting a child object
             obj_info_after.active_obj.parent = None
 
+            #Add metadata
+            raw_path = bpy.data.filepath
+            if raw_path:
+                obj_info_after.add_property("BlendSrc", raw_path.replace('\\','/'))
+            else:
+                obj_info_after.add_property("BlendSrc", "Unsaved_File")
 
             #Reset position
             if obj_info_after.active_obj.lr_object_export_settings.get("lr_export_reset_position") == 0:
@@ -346,9 +352,12 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
                 os.makedirs(export_path)
 
 
+            
+
             bpy.ops.export_scene.fbx(filepath = str(export_file),
                                      check_existing=False,
                                      use_selection=True,
+                                     mesh_smooth_type="FACE",
                                      prioritize_active_color=True,
                                      colors_type='SRGB',
                                      use_visible=False,

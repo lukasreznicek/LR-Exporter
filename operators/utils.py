@@ -47,9 +47,13 @@ class SelectionCapture():
         for data in self.selected_objs_data:
             self.selected_objs_data_names.append(data.name)
 
-
     def __repr__(self) -> str:
         return str(self.selected_objs_names)   
+
+    def add_property(self, property_name, value):
+        for obj in self.selected_objs:
+            if obj.type == 'MESH':
+                obj[property_name] = value
 
     def make_selection(self):
         '''Will select only objects in this class instance. Preserves active obj. Will deselect everything before.'''
