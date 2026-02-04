@@ -1,5 +1,6 @@
+import operator
 import bpy, math
-
+import socket, json
 
 
 def get_outliner_selection():
@@ -38,7 +39,7 @@ class SelectionCapture():
             self.selected_objs_names.append(obj.name)
             if obj.type == 'MESH':
                 data_temp.append(obj.data)
-            if obj.lr_object_export_settings.object_mode == 'EXPORTED':
+            if obj.lr_object_export_settings.object_mode == 'AUTO':
                 self.selected_objs_filtered.append(obj)
             elif obj.lr_object_export_settings.object_mode == 'MASK_EXPORT':
                 self.selected_objs_for_mask_only.append(obj)
@@ -71,7 +72,10 @@ class SelectionCapture():
         for obj in self.selected_objs:
             if obj.lr_object_export_settings.object_mode == 'MASK_EXPORT':
                 obj.select_set(False)
-
+    def select_formask_objects(self):
+        for obj in self.selected_objs:
+            if obj.lr_object_export_settings.object_mode == 'MASK_EXPORT':
+                obj.select_set(True)
 
     def select_ignored_objects(self):
         for obj in self.selected_objs:
@@ -312,3 +316,25 @@ class SelectionCapture():
         for obj in store_sel:
             obj.select_set(True)
         bpy.context.view_layer.objects.active = store_active
+
+
+def send_payload_to_listener(payload:dict[str,str], host:str='127.0.0.1', port:int=9001, operator=None):
+    '''Sends a simple json payload to Unreal Engine listener'''
+
+    HOST = host
+    PORT = port
+
+    data = json.dumps(payload).encode("utf-8")
+
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(0.2) # Short timeout to avoid hanging if server not available
+        sock.connect((HOST, PORT))
+        sock.sendall(data)
+        sock.close()
+        
+    except (ConnectionRefusedError, TimeoutError, OSError):
+        if operator:
+            operator.report({'WARNING'}, "Unreal socket server is not running")
+        else:
+            print("Unreal socket server is not running")

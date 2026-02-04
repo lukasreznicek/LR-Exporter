@@ -10,7 +10,11 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
-import bpy
+import bpy,os
+import pathlib
+
+
+
 
 bl_info = {
     "name" : "LR exporter",
@@ -26,9 +30,71 @@ bl_info = {
 
 addon_name = 'lr_export'
 
-from .operators.operators import OBJECT_OT_lr_hierarchy_exporter, OBJECT_OT_store_object_data_json,OBJECT_OT_lr_pack_uvs,OBJECT_OT_lr_reimport
+from .operators.operators import OBJECT_OT_lr_hierarchy_exporter, OBJECT_OT_store_object_data_json,OBJECT_OT_lr_pack_uvs,OBJECT_OT_lr_reimport, OT_OpenScriptsFolder
 # from .operators.wrappers import lr_export_one_material,lr_exportformask
 from bpy.props import IntProperty, CollectionProperty, StringProperty,FloatVectorProperty,BoolProperty,EnumProperty
+
+
+
+def get_addon_dir():
+    return pathlib.Path(__file__).parent
+
+
+
+
+def load_script_docstring(path):
+    namespace = {"__name__": "lr_preview"} 
+
+    with open(path, "r", encoding="utf-8") as f:
+        code = f.read()
+
+    exec(code, namespace)  # safe: guarded code won't run
+
+    doc = namespace.get("__doc__", "")
+    return doc.strip() if doc else ""
+
+_script_cache = {}  # global: { path_str: { "mtime": float, "doc": str } }
+
+def list_python_files(self, context):
+    addon_dir = get_addon_dir() / "scripts"
+    items = [("NONE", "No Custom Script", "","PANEL_CLOSE",0)]
+
+    for file in addon_dir.iterdir():
+        if not (file.is_file() and file.suffix == ".py"):
+            continue
+
+        path_str = str(file)
+        mtime = os.path.getmtime(file)
+
+        cached = _script_cache.get(path_str)
+
+        # Cache miss or file changed
+        if cached is None or cached["mtime"] != mtime:
+            doc = load_script_docstring(file)
+            _script_cache[path_str] = {
+                "mtime": mtime,
+                "doc": doc,
+            }
+        else:
+            doc = cached["doc"]
+
+        tooltip = doc if doc else f"Run {file.name}"
+
+        items.append((
+            file.name,   # identifier
+            file.stem,   # display name
+            tooltip      # tooltip
+        ))
+
+    return items
+
+
+    if not items:
+        items.append(("NONE", "No scripts found", ""))
+
+    return items
+
+
 
 # Properties 
 # To acess properties: bpy.data.scenes['Scene'].lr_export
@@ -45,7 +111,8 @@ class LR_ExportSettings_Scene(bpy.types.PropertyGroup):
     
     export_type:bpy.props.EnumProperty(name= 'Export Type', description= '', items= [('OP1', 'Option 1',''),('OP2', 'Option 2',''),('OP3', 'Option 3','')])
     add_missing_hp: bpy.props.BoolProperty(name="Add Missing HP",description= 'Select one _LP and _HP object. Exporter goes through all children with _HP/_LP and matches them by name. Then adds missing _HP objects. \n Useful when some object dont need high poly but still need to be baked', default=False)
-    export_full_hierarchy: bpy.props.BoolProperty(name="Full Hierarchy  ",description='True: Children and all parent objects are exported. FBX name/settings is taken from upper most object in hierarchy.\nFalse: Selected and children objects are exported', default=True)
+    send_payload: bpy.props.BoolProperty(name="Send Request to UE", default=False,description= 'Requires Unreal’s communication listener to be active.\nSends json file containing export information. Unreal Engine will take that data and use it for import setup.')
+    # export_full_hierarchy: bpy.props.BoolProperty(name="Full Hierarchy  ",description='True: Children and all parent objects are exported. FBX name/settings is taken from upper most object in hierarchy.\nFalse: Selected and children objects are exported', default=True)
     export_hidden: bpy.props.BoolProperty(name="Export Hidden",description='True: Export hidden objects in hierarchy', default=True)
     
     lr_assembly_replace_file: bpy.props.BoolProperty(name="Replace File", default=True)
@@ -56,7 +123,8 @@ class LR_ExportSettings_Scene(bpy.types.PropertyGroup):
     #Importer
     lr_import_remove_mesh: bpy.props.BoolProperty(name="Remove mesh as well",description= 'During reimport additionally delete mesh objects from .blend file. Slow with losts of meshes. When disabled is best to purge orphan data manually. Often faster. \n\nObject IS deleted even when this option is Off', default=False)# type: ignore
     lr_import_material_cleanup: bpy.props.BoolProperty(name="Clean Materials",description= 'Default Blender import always include materials. If scene has material with the same name it will be duplicated with .001 suffix. This will reassigns the material to the one without suffix and removes the suffix one', default=True)# type: ignore
-
+    
+    
     
 
                 # unwrap_method = 'ANGLE_BASED', 
@@ -72,6 +140,7 @@ class LR_ExportSettings_Scene(bpy.types.PropertyGroup):
     # vertex_color_offset_amount: bpy.props.FloatProperty(name="Offset amount", default=0.1, min = 0, max = 1)
     # lr_vc_swatch: FloatVectorProperty(name="object_color",subtype='COLOR',default=(1.0, 1.0, 1.0),min=0.0, max=1.0,description="color picker")
     # lr_vc_alpha_swatch: bpy.props.FloatProperty(name="Alpha Value", step = 5, default=0.5, min = 0, max = 1)
+
 
 def make_relative(self, context):
     # Get the current value of lr_import_path
@@ -91,12 +160,12 @@ class LR_ExportSettings_Object(bpy.types.PropertyGroup):
         description="Export mode",
         override={'LIBRARY_OVERRIDABLE'},
         items=[
-            ("EXPORTED", "Exported", "Object is included in export if in hierarchy.","CHECKMARK",1),
-            # ("PARENT","Export recursive","Export this object and its children","KEYINGSET",2),
+            ("PARENT","Export recursive","Export this object and its children","FILE",1),
+            ("AUTO", "Auto", "Object is included in export if in hierarchy.","BOIDS",2),
             ("NOT_EXPORTED","Ignored","Object is excluded from export.","X",3),
             ("MASK_EXPORT","Mask Only","Object is exported only fro mask","MOD_MASK",4)
             ],
-            default="EXPORTED"
+            default="AUTO"
         ) # type: ignore
 
     lr_exportsubfolder:bpy.props.StringProperty(
@@ -167,7 +236,9 @@ class LR_ExportSettings_Object(bpy.types.PropertyGroup):
         default="",
         subtype='FILE_PATH',
         )# type: ignore
+    
 
+    python_scripts:bpy.props.EnumProperty(name="Script",description="Select a Python script",items=list_python_files)
 
 
     # lr_export_add_missing_hp:bpy.props.BoolProperty(
@@ -231,57 +302,66 @@ class VIEW3D_PT_lr_export(bpy.types.Panel):
         # row = layout.column()
         row.prop(lr_export_settings_scene, "export_path")
         # row = layout.row(align=True)        
-        row.prop(lr_export_settings_scene, "export_full_hierarchy")
+        # row.prop(lr_export_settings_scene, "export_full_hierarchy")
         row.prop(lr_export_settings_scene, "export_hidden")
         row.prop(lr_export_settings_scene, "add_missing_hp")    
+        row.prop(lr_export_settings_scene, "send_payload")  
         
-             
+        # layout.alignment = 'RIGHT'  # or 'LEFT', 'CENTER', 'RIGHT'
 
+
+
+
+        # Object Settings
 
         layout = self.layout.box()
-        # layout.alignment = 'RIGHT'  # or 'LEFT', 'CENTER', 'RIGHT'
         layout.label(text='Object Settings:')
-
         row = layout.row(align=True)  
         if context.object:
             row.prop(context.object.lr_object_export_settings, 'object_mode', text="Mode", icon='OBJECT_DATA', emboss=True, expand=False, icon_only=False)
-            
+            # row = layout.column()
 
-            row = layout.column()
 
+
+        row = layout.row(align=True)  
         if context.object:
-            row.alignment = 'RIGHT'
+            # row.alignment = 'RIGHT'
             row.prop(context.object.lr_object_export_settings,'lr_exportsubfolder')
             
         # row.separator()
-        
 
         row = layout.column_flow(columns=2)
 
         row.prop(context.object.lr_object_export_settings,'lr_export_reset_position')
         row.prop(context.object.lr_object_export_settings,'lr_export_reset_rotation')
-
+                 #Setting is avaliable on parent object only
+        if lr_object_export_settings.object_mode == "PARENT":
+            row = layout.row(align=True)  
+            row.prop(lr_object_export_settings, "python_scripts")
+            row.operator("wm.lr_exporter_open_scripts_folder", text="", icon='FILE_FOLDER')
 
         # ------------ UV Manipulation ------------ ONLY IN Blender 4.1
         
-        header, panel = layout.panel("my_panel_id", default_closed=True)
-        header.label(text="UV Edit")
-        if bpy.context.object.parent == None: #Setting is avaliable on parent object only
-            if panel:
-                panel.prop(lr_object_export_settings, "uvs_index") 
-                panel.prop(lr_object_export_settings, "uvs_unwrap") 
-                if lr_object_export_settings.uvs_unwrap:
-                    panel.prop(lr_object_export_settings, "uvs_unwrap_method") 
-                    panel.prop(lr_object_export_settings, "uvs_unwrap_margin") 
+        # header, panel = layout.panel("my_panel_id", default_closed=True)
+        # header.label(text="Scripts:")
+        # if lr_object_export_settings.object_mode == "PARENT": #Setting is avaliable on parent object only
+        #     if panel:
 
-                panel.prop(lr_object_export_settings, "uvs_average_scale") 
-                panel.prop(lr_object_export_settings, "uvs_pack") 
+
+        #         # panel.prop(lr_object_export_settings, "uvs_index") 
+        #         # panel.prop(lr_object_export_settings, "uvs_unwrap") 
+        #         # if lr_object_export_settings.uvs_unwrap:
+        #         #     panel.prop(lr_object_export_settings, "uvs_unwrap_method") 
+        #         #     panel.prop(lr_object_export_settings, "uvs_unwrap_margin") 
+
+        #         # panel.prop(lr_object_export_settings, "uvs_average_scale") 
+        #         # panel.prop(lr_object_export_settings, "uvs_pack") 
                 
-                if lr_object_export_settings.uvs_pack:
-                    panel.prop(lr_object_export_settings, "uvs_pack_margin")
-        else:
-            if panel:
-                panel.label(text="Set on parent object.")
+        #         # if lr_object_export_settings.uvs_pack:
+        #         #     panel.prop(lr_object_export_settings, "uvs_pack_margin")
+        # else:
+        #     if panel:
+        #         panel.label(text="Set on parent object.")
 
 
 
@@ -289,25 +369,29 @@ class VIEW3D_PT_lr_export(bpy.types.Panel):
         
         layout = self.layout.box()
         # layout.label(text="Export")
-        row = layout.row(align=True)
-        row.scale_y = 2
-        op_export = row.operator("object.lr_exporter_export", text="Export", icon = 'EXPORT')
+
+        # row = layout.row(align=True)
+        layout.scale_y = 2
+
+        # layout.label(text="Select Script")
+        # row.scale_y = 2
+        op_export = layout.operator("object.lr_exporter_export", text="Export", icon = 'EXPORT')
         op_export.export_for_mask = False
         op_export.export_hidden=lr_export_settings_scene.export_hidden
     
 
 
 
-        row = layout.column(align=True)
-        row.scale_y = 1
-        op = row.operator("object.lr_exporter_export", text="Export for mask", icon = 'EXPORT')
-        op.export_for_mask = True
+        # row = layout.column(align=True)
+        # row.scale_y = 1
+        # op = row.operator("object.lr_exporter_export", text="Export for mask", icon = 'EXPORT')
+        # op.export_for_mask = True
         
-        if context.object:
-            row.alignment = 'RIGHT'
-            row.prop(lr_export_settings_scene, "export_mask_sm_suffix")
-            row.prop(context.object.lr_object_export_settings,'lr_mat_override_mask')
-            row.prop(lr_object_export_settings, "lr_uv_isolate_mask")
+        # if context.object:
+        #     row.alignment = 'RIGHT'
+        #     row.prop(lr_export_settings_scene, "export_mask_sm_suffix")
+        #     row.prop(context.object.lr_object_export_settings,'lr_mat_override_mask')
+        #     row.prop(lr_object_export_settings, "lr_uv_isolate_mask")
         
         row.separator()
         
@@ -456,6 +540,7 @@ classes = [LR_ExportSettings_Scene,
            VIEW3D_PT_lr_export,#VIEW3D_PT_ObjectProperties,
         #    VIEW3D_PT_lr_Export_UV_Mainpulation,
            OBJECT_OT_lr_pack_uvs,
+           OT_OpenScriptsFolder,
            
            #Importer
            VIEW3D_PT_lr_importer,

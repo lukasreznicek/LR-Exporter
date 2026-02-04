@@ -1,7 +1,8 @@
 import bpy, os, math
 from . import utils
 import time
-
+from pathlib import Path
+import subprocess
 
 @staticmethod
 def get_objects_in_local_view():
@@ -54,6 +55,30 @@ def change_local_view_on_objects(objects:list,viewport,add_to_local_view=True):
             obj.local_view_set(viewport, add_to_local_view)
 
 
+class OT_OpenScriptsFolder(bpy.types.Operator):
+    bl_idname = "wm.lr_exporter_open_scripts_folder"
+    bl_label = "Open Scripts Folder in exporter addon"
+    bl_description = "Opens the lr exporter Scripts folder in Windows Explorer"
+
+    def execute(self, context):
+        # Compute the folder path
+        folder = Path(__file__).resolve().parents[1] / "Scripts"
+
+        # Ensure it exists
+        if not folder.exists():
+            self.report({'ERROR'}, f"Folder does not exist: {folder}")
+            return {'CANCELLED'}
+
+        # Open in Windows Explorer
+        try:
+            subprocess.Popen(f'explorer "{folder}"')
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to open folder: {e}")
+            return {'CANCELLED'}
+
+        return {'FINISHED'}
+
+
 class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
     """Exports selected object and its children (or parents) into FBX file.\nOne selected object = One .FBX. Multiple object selection will result in multiple .FBX"""
     
@@ -63,8 +88,9 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
     
     export_hidden:bpy.props.BoolProperty(name="Export Hidden", description="Exports all objects in hierarchy including hidden objects.", default=True, options={'HIDDEN'})
     export_for_mask:bpy.props.BoolProperty(name="Export For Mask", description="Exports object with material and UV override in mind", default=False, options={'HIDDEN'})
-
-
+    ADDON_ROOT = Path(__file__).resolve().parents[1]
+    exported_objects = []
+    selection_capture = None
     def execute(self, context): 
         
         if bpy.data.is_saved == False: #Saved file check
@@ -78,6 +104,12 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
             self.report({'WARNING'}, message)
             return {'FINISHED'}
 
+        store_mode = bpy.context.object.mode
+        
+        if bpy.context.object.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+
+
 
         # ------ PRE-PROCESS ------
               
@@ -86,42 +118,54 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
         store_selection = bpy.context.selected_objects
         store_active_selection = bpy.context.view_layer.objects.active
         
-        objects_to_evaluate = bpy.context.selected_objects #Initial selection
+        # objects_to_evaluate = bpy.context.selected_objects #Initial selection
+        parent_empty = None
 
+        # if lr_export_settings_scene.export_full_hierarchy == True: #Bool to select full hierarchy, This will modify list. Replaces current selection for the uppermost in hierarchy.
 
-        if lr_export_settings_scene.export_full_hierarchy == True: #Bool to select full hierarchy, This will modify list. Replaces current selection for the uppermost in hierarchy.
-
-            obj_parent_top_list = []
-            for obj in objects_to_evaluate:
-                obj_parent = obj.parent
-                if obj_parent != None: 
-                    while obj_parent is not None:   # If the object has a parrent find the upper-most and add to evaluation
-                        obj_parent_top = obj_parent
-                        obj_parent = obj_parent.parent
+        #     obj_parent_top_list = []
+        #     for obj in objects_to_evaluate:
+        #         obj_parent = obj.parent
+        #         if obj_parent != None: 
+        #             while obj_parent is not None:   # If the object has a parrent find the upper-most and add to evaluation
+        #                 obj_parent_top = obj_parent
+        #                 obj_parent = obj_parent.parent
                 
-                    obj_parent_top_list.append(obj_parent_top)
-                else:
-                    obj_parent_top_list.append(obj)
+        #             obj_parent_top_list.append(obj_parent_top)
+        #         else:
+        #             obj_parent_top_list.append(obj)
 
                 
 
-            objects_to_evaluate = obj_parent_top_list
- 
+        #     objects_to_evaluate = obj_parent_top_list
 
 
+
+        objects_to_evaluate = []
+        for obj in bpy.context.selected_objects:
+            if obj.lr_object_export_settings.object_mode == 'PARENT':
+                objects_to_evaluate.append(obj)
+                continue
+
+            obj_parent = obj.parent
+            if obj_parent != None: 
+                while obj_parent is not None:   # If the object has a parrent find the upper-most and add to evaluation
+                    # print(obj_parent.name)
+                    if obj_parent.lr_object_export_settings.object_mode == 'PARENT':
+                        objects_to_evaluate.append(obj_parent)
+                        break
+
+                    obj_parent = obj_parent.parent
+
+        for obj in list(objects_to_evaluate):
+            for child in obj.children_recursive:
+                if child.lr_object_export_settings.object_mode != 'PARENT':
+                    continue
+                if child not in objects_to_evaluate:
+                    objects_to_evaluate.append(child)
         #Each object in list to evaluate. 
 
 
-
-
-        #--- START ---        
-    
-        #--- Input ---
-        
-        # objects_to_evaluate_active = bpy.context.view_layer.objects.active
-        
-
-        # blender_file_location = bpy.path.abspath('//')
 
 
 
@@ -212,15 +256,28 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
                 self.report({'INFO'}, message)
 
 
+        # ----------
+        #   PRE-PROCESS - Optional
+        #   duplicate geometry and do specified tasks like uv preparation and deinstancing. 
+        #   This needs to be here because each exported object need to have the same uv packing.
+        # ----------
+
+        
 
 
 
-
-        for obj_evaluated in objects_to_evaluate:         
+        # ---------
+        #   Object to evaluate is a root object to be exported. This object + descendants will be exported as one fbx.
+        # ---------
+        for obj_evaluated in list(dict.fromkeys(objects_to_evaluate)): #Remove duplicates
+            self.exported_objects.clear()
+            self.parent_object = obj_evaluated
             time_start = time.time()
 
             if obj_evaluated.lr_object_export_settings.object_mode == 'NOT_EXPORTED':
                 continue
+
+
 
             bpy.ops.object.select_all(action='DESELECT')
               
@@ -238,7 +295,6 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
                     continue
                 
                 if self.export_hidden == True: #Unhide objects before export if wanted.
-
                     if obj.hide_viewport == True:
                         object_hidden_in_viewport.append(obj)
                         obj.hide_viewport = False
@@ -249,6 +305,7 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
 
                 obj.select_set(True) #Only one obj selection matters which is here and line below. This needs to be after unhide. In Blender hidden selected object count as unselected.
             
+
             bpy.context.view_layer.objects.active = obj_evaluated #Active object is important for transform and naming.
 
 
@@ -263,7 +320,7 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
             bpy.ops.object.duplicate(linked=True) #All obj properties are copied during ops.duplicate()
             
             obj_info_after = utils.SelectionCapture()
-
+            
 
             #Naming objects
             
@@ -274,7 +331,8 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
             
             obj_info_after.restore_object_names(obj_info_before.selected_objs_names)
             obj_info_after.restore_object_data_names(obj_info_before.selected_objs_data_names)
-
+            self.exported_objects = context.selected_objects #Should be improved later.
+            #--- PREPARATION END ---
 
 
             #Remove any parents in case of exporting a child object
@@ -299,23 +357,51 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
             else:
                 obj_info_after.active_obj.rotation_euler = 0,0,0
 
+            #----------------------------
+            #Custom operations:
+            #
+            obj_info_after.deselect_formask_objects()
+            
+            self.selection_capture = obj_info_after
+            if obj_evaluated.lr_object_export_settings.python_scripts != 'NONE':
+                try:
+                    script_file = self.ADDON_ROOT / "scripts" / obj_evaluated.lr_object_export_settings.python_scripts
+                    namespace = {
+                        "__file__": str(script_file),
+                        "__name__": "__lr_export_script__",
+                        "self": self,
+                        "context": context,
+                    }
 
-            if self.export_for_mask:
-                obj_info_after.deselect_ignored_objects() #Deselect object which are marked as Ignored.
-                obj_info_after.material_override()
-                obj_info_after.remove_all_but_one_uv()     
-            else:
-                obj_info_after.deselect_ignored_objects() #Deselect object which are marked as Ignored and marked as for mask only.
-                obj_info_after.deselect_formask_objects()
+                    with open(script_file, "r", encoding="utf-8") as f:
+                        exec(f.read(), namespace)
+                
+                except Exception as e:
+                    self.report({'ERROR'}, f"Error executing script {obj_evaluated.lr_object_export_settings.python_scripts}: {e}")
 
-            if obj_evaluated.lr_object_export_settings.uvs_unwrap or obj_evaluated.lr_object_export_settings.uvs_pack or obj_evaluated.lr_object_export_settings.uvs_average_scale:
-                obj_info_after.uv_edit(uv_index=obj_evaluated.lr_object_export_settings.uvs_index,
-                                    unwrap= obj_evaluated.lr_object_export_settings.uvs_unwrap,
-                                    unwrap_method= obj_evaluated.lr_object_export_settings.uvs_unwrap_method,
-                                    unwrap_margin= obj_evaluated.lr_object_export_settings.uvs_unwrap_margin,
-                                    average_scale= obj_evaluated.lr_object_export_settings.uvs_average_scale,
-                                    pack_islands= obj_evaluated.lr_object_export_settings.uvs_pack,
-                                    pack_margin= obj_evaluated.lr_object_export_settings.uvs_pack_margin)
+
+
+
+            # if self.export_for_mask:
+            #     obj_info_after.deselect_ignored_objects() #Deselect object which are marked as Ignored.
+            #     obj_info_after.material_override()
+            #     obj_info_after.remove_all_but_one_uv()     
+            # else:
+            #     obj_info_after.deselect_ignored_objects() #Deselect object which are marked as Ignored and marked as for mask only.
+                
+
+
+            # if obj_evaluated.lr_object_export_settings.uvs_unwrap or obj_evaluated.lr_object_export_settings.uvs_pack or obj_evaluated.lr_object_export_settings.uvs_average_scale:
+            #     obj_info_after.uv_edit(uv_index=obj_evaluated.lr_object_export_settings.uvs_index,
+            #                         unwrap= obj_evaluated.lr_object_export_settings.uvs_unwrap,
+            #                         unwrap_method= obj_evaluated.lr_object_export_settings.uvs_unwrap_method,
+            #                         unwrap_margin= obj_evaluated.lr_object_export_settings.uvs_unwrap_margin,
+            #                         average_scale= obj_evaluated.lr_object_export_settings.uvs_average_scale,
+            #                         pack_islands= obj_evaluated.lr_object_export_settings.uvs_pack,
+            #                         pack_margin= obj_evaluated.lr_object_export_settings.uvs_pack_margin)
+
+
+
 
 
             # if self.export_for_mask == True:
@@ -364,6 +450,15 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
                                      use_custom_props=True,
                                      use_metadata=True,
                                      add_leaf_bones=False) 
+
+            if lr_export_settings_scene.send_payload:
+                utils.send_payload_to_listener(
+                    payload={
+                        "asset_path": os.path.abspath(str(export_file)).replace('\\', '/'),
+                        "asset_name": filename_prefix_suffix
+                    },
+                    operator=self
+                )
 
             # bpy.ops.export_scene.fbx(
                 # filepath=GetExportFullpath(dirpath, filename),
@@ -834,21 +929,6 @@ class OBJECT_OT_lr_reimport(bpy.types.Operator):
 
 
         return {'FINISHED'}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
