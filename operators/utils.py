@@ -19,10 +19,22 @@ def f7(seq):
     return [x for x in seq if not (x in seen or seen_add(x))]
 
 
+
+class root_node_capture:
+    def __init__(self, root_node):
+        self.root_node = root_node
+        children = {}
+
+
+
+
+
+
+
+
 class SelectionCapture():
     def __init__(self):
         self.active_obj = None
-        self.selected_objs = []
         self.selected_objs_data = []
         self.selected_objs_names = []
         self.selected_objs_data_names = []
@@ -31,7 +43,7 @@ class SelectionCapture():
         self.active_obj = bpy.context.object
         self.selected_objs = bpy.context.selected_objects #All selected objects, including active object if its selected
         self.selected_objs_filtered = [] #All objects that are marked as 'EXPORTED', Including non 'MESH'
-        self.selected_objs_for_mask_only = []
+
         for obj in self.selected_objs:
             if obj.parent == None:
                 self.root_parent = obj
@@ -41,8 +53,7 @@ class SelectionCapture():
                 data_temp.append(obj.data)
             if obj.lr_object_export_settings.object_mode == 'AUTO':
                 self.selected_objs_filtered.append(obj)
-            elif obj.lr_object_export_settings.object_mode == 'MASK_EXPORT':
-                self.selected_objs_for_mask_only.append(obj)
+
         #Remove duplicate data
         self.selected_objs_data = f7(data_temp) 
         for data in self.selected_objs_data:
@@ -139,183 +150,9 @@ class SelectionCapture():
         for obj in self.selected_objs:
             bpy.data.objects.remove(obj, do_unlink=True)
 
-    def material_override(self):
-        '''Removes all materials and assigns one provided in obj parameter'''
-        
-        
-        # Check if parent has a name
-        parent_has_material_name = False
-        parent_new_material_name= self.root_parent.lr_object_export_settings.get('lr_mat_override_mask')
-
-        if parent_new_material_name != None or parent_new_material_name != '':
-            parent_has_material_name = True
-        
-        objs_to_process = self.selected_objs_filtered + self.selected_objs_for_mask_only
-        
-        for obj in objs_to_process: 
-            if obj.type != 'MESH':
-                continue
-
-            new_mat_name = obj.lr_object_export_settings.get('lr_mat_override_mask')
-            
-            if new_mat_name == None or new_mat_name == '' and parent_has_material_name != False: #Take parent info if child has nothing.
-                new_mat_name = parent_new_material_name
 
 
-            if new_mat_name == '' or new_mat_name == None:
-                continue
-            else:
-                new_mat = bpy.data.materials.get(new_mat_name)
-                if new_mat is None:
-                    new_mat = bpy.data.materials.new(name=new_mat_name)
-                
-                obj.data = obj.data.copy() #making the object unique so i wont affect the existing one
-                obj.data.materials.clear()
 
-                # Add the first material slot back
-                obj.data.materials.append(new_mat)
-
-            #If object is in collection containing '_ID' assign material.
-            #     if 'occluder' in collection_name_lower:
-            #         if mat_occluder_name not in all_mats:
-            #             mat_occluder = bpy.data.materials.new(name=mat_occluder_name)
-            #         if link == 'OBJECT':
-            #             obj.material_slots[0].material = bpy.data.materials[str(mat_occluder_name)]
-            #         if link == 'DATA':
-            #             obj.data.materials[0] = bpy.data.materials[mat_occluder_name]   
-
-    def remove_all_but_one_uv(self):
-        
-        parent_has_uv_name = False
-        parent_preserve_uv_name= self.root_parent.lr_object_export_settings.get('lr_uv_isolate_mask')
-
-        if parent_preserve_uv_name != None or parent_preserve_uv_name != '':
-            parent_has_uv_name = True
-
-        objs_to_process = self.selected_objs_filtered + self.selected_objs_for_mask_only
-        
-        for obj in objs_to_process:
-            if obj.type != 'MESH':
-                continue
-
-            keep_uv_name=obj.lr_object_export_settings.get('lr_uv_isolate_mask')
-            
-            if keep_uv_name == None or keep_uv_name == '' and parent_has_uv_name != False: #Take parent info if child has nothing.
-                keep_uv_name = parent_preserve_uv_name
-
-            if keep_uv_name == '' or keep_uv_name == None:
-                continue
-
-            else:
-                obj.data = obj.data.copy() #Remove Instancing
-                dat = obj.data
-                count = 0
-                if keep_uv_name in dat.uv_layers: 
-                    while len(dat.uv_layers) > 1:
-                        if dat.uv_layers[count].name == keep_uv_name:
-                            count+=1
-                            continue
-                        else:
-                            dat.uv_layers.remove(dat.uv_layers[count])
-                else:
-                    while len(dat.uv_layers) > 1:
-                        dat.uv_layers.remove(dat.uv_layers[1]) 
-
-    def add_uv_index(self):
-        pass
-
-
-    def uv_edit(self,
-            
-                uv_index, 
-                unwrap = False, 
-                unwrap_method = 'ANGLE_BASED', 
-                unwrap_margin = 0.001,
-                
-                average_scale = False, 
-                
-                pack_islands = False,
-                pack_margin = 0.001):
-        
-        '''
-        Optionally unwraps, averages or packs UVs in specified index on stored objects.
-        unwrap_method 'ANGLE_BASED', 'CONFORMAL'
-        '''
-
-        
-        uv_index -= 1 #From 0
-
-        check_missing_uv_id = False
-
-        store_sel = bpy.context.selected_objects
-        store_active = bpy.context.active_object
-        bpy.context.view_layer.objects.active = self.selected_objs_filtered[0]
-        store_mode = bpy.context.mode
-        
-        bpy.ops.object.select_all(action='DESELECT')
-        
-        for obj in self.selected_objs_filtered:
-            if obj.type == 'MESH':
-                obj.select_set(True)
-
-        #Make single user and Apply modifiers
-        bpy.ops.object.make_single_user(object=True, obdata=True, material=False, animation=False, obdata_animation=False)
-        bpy.ops.object.convert(target='MESH')
-        
-
-        for obj in self.selected_objs_filtered:
-            if obj.type != 'MESH':
-                continue
-
-            # store_uv_index = obj.data.uv_layers.active_index
-            uv_layer_amount = ((len(obj.data.uv_layers))-1) #From 0
-
-            if uv_index > uv_layer_amount:
-                check_missing_uv_id = True
-                obj.data.uv_layers[0].active = True #Copy from 0 if destination UV not present
-                while len(obj.data.uv_layers)-1 < uv_index:
-                    obj.data.uv_layers.new(name='UVMap', do_init = True)
-        
-            obj.data.uv_layers[uv_index].active = True
-
-
-        if check_missing_uv_id:
-            print(f'Some objects are missing UV #{uv_index}. Duplicating UV 0.')
-
-        bpy.ops.object.mode_set(mode='EDIT')
-        bpy.ops.mesh.select_all(action='SELECT')
-        bpy.ops.uv.select_all(action='SELECT')
-        
-        if unwrap == True:
-            bpy.ops.uv.unwrap(method=unwrap_method, 
-                            fill_holes=True, 
-                            correct_aspect=True, 
-                            use_subsurf_data=False, 
-                            margin_method='SCALED', 
-                            margin=0.001)
-
-        if average_scale == True:
-            bpy.ops.uv.average_islands_scale(scale_uv=False, 
-                                            shear=False)
-
-        if pack_islands == True:
-            bpy.ops.uv.pack_islands(udim_source ='CLOSEST_UDIM', 
-                                    rotate = True,
-                                    rotate_method = 'ANY',
-                                    scale = True,
-                                    merge_overlap = False,
-                                    margin_method = 'SCALED',
-                                    margin = pack_margin,
-                                    pin = False,
-                                    pin_method = 'LOCKED',
-                                    shape_method = 'CONCAVE')
-
-        bpy.ops.object.mode_set(mode=store_mode)
-        for obj in bpy.data.objects:
-            obj.select_set(False)
-        for obj in store_sel:
-            obj.select_set(True)
-        bpy.context.view_layer.objects.active = store_active
 
 
 def send_payload_to_listener(payload:dict[str,str], host:str='127.0.0.1', port:int=9001, operator=None):

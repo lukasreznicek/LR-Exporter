@@ -5,6 +5,57 @@ from pathlib import Path
 import subprocess
 
 @staticmethod
+def get_active_3d_viewport():
+    """Return a VIEW_3D space, trying context first, then fallback to first 3D viewport."""
+    area = bpy.context.area
+    if area and area.type == 'VIEW_3D':
+        for space in area.spaces:
+            if space.type == 'VIEW_3D':
+                return space
+
+    # fallback: first 3D viewport
+    for area in bpy.context.screen.areas:
+        if area.type == 'VIEW_3D':
+            for space in area.spaces:
+                if space.type == 'VIEW_3D':
+                    return space
+    return None
+
+
+def get_local_views():
+    local_views = []
+    for area in bpy.context.screen.areas:
+        if area.type == "VIEW_3D":
+            for space in area.spaces:
+                if space.type == "VIEW_3D":
+                    if space.local_view:
+                        local_views.append(space)
+    return local_views
+
+
+@staticmethod
+def objects_not_in_local_view(obj_list):
+    """
+    Filter a list of objects and return those not in local view
+    of the active 3D viewport.
+
+    Args:
+        obj_list (list of bpy.types.Object): objects to check
+
+    Returns:
+        list of bpy.types.Object: objects not in local view
+        None if local view is not active
+    """
+    viewport_space = get_active_3d_viewport()
+    if not viewport_space or not viewport_space.local_view:
+        return None
+
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+
+    return [obj for obj in obj_list if not obj.evaluated_get(depsgraph).local_view_get(viewport_space)
+    ]
+
+@staticmethod
 def get_objects_in_local_view():
     '''
     Inputs:
@@ -31,9 +82,9 @@ def get_objects_in_local_view():
         depsgraph = bpy.context.evaluated_depsgraph_get()
         objects_in_local_view =[]
         for obj in bpy.data.objects:
-            obj_evaluated = obj.evaluated_get(depsgraph)
+            export_node = obj.evaluated_get(depsgraph)
             # obj.local_view_set(viewport_space, True)
-            if obj_evaluated.local_view_get(viewport_space):
+            if export_node.local_view_get(viewport_space):
                 objects_in_local_view.append(obj)
                 
 
@@ -55,21 +106,48 @@ def change_local_view_on_objects(objects:list,viewport,add_to_local_view=True):
             obj.local_view_set(viewport, add_to_local_view)
 
 
+# class OT_OpenScriptsFolder(bpy.types.Operator):
+#     bl_idname = "wm.lr_exporter_open_scripts_folder"
+#     bl_label = "Open Scripts Folder in exporter addon"
+#     bl_description = "Opens the lr exporter Scripts folder in Windows Explorer"
+
+#     def execute(self, context):
+#         # Compute the folder path
+#         folder = Path(__file__).resolve().parents[1] / "Scripts"
+
+#         # Ensure it exists
+#         if not folder.exists():
+#             self.report({'ERROR'}, f"Folder does not exist: {folder}")
+#             return {'CANCELLED'}
+
+#         # Open in Windows Explorer
+#         try:
+#             subprocess.Popen(f'explorer "{folder}"')
+#         except Exception as e:
+#             self.report({'ERROR'}, f"Failed to open folder: {e}")
+#             return {'CANCELLED'}
+
+#         return {'FINISHED'}
+    
 class OT_OpenScriptsFolder(bpy.types.Operator):
     bl_idname = "wm.lr_exporter_open_scripts_folder"
-    bl_label = "Open Scripts Folder in exporter addon"
-    bl_description = "Opens the lr exporter Scripts folder in Windows Explorer"
+    bl_label = "Open Scripts Folder"
+    bl_description = "Opens a folder inside the LR Exporter addon root"
+
+    subfolder: bpy.props.StringProperty(
+        name="Subfolder",
+        description="Name of the subfolder inside the addon root",
+        default="Scripts"
+    )
 
     def execute(self, context):
-        # Compute the folder path
-        folder = Path(__file__).resolve().parents[1] / "Scripts"
+        addon_root = Path(__file__).resolve().parents[1]
+        folder = addon_root / self.subfolder
 
-        # Ensure it exists
         if not folder.exists():
             self.report({'ERROR'}, f"Folder does not exist: {folder}")
             return {'CANCELLED'}
 
-        # Open in Windows Explorer
         try:
             subprocess.Popen(f'explorer "{folder}"')
         except Exception as e:
@@ -78,6 +156,16 @@ class OT_OpenScriptsFolder(bpy.types.Operator):
 
         return {'FINISHED'}
 
+def object_depth(obj):
+    depth = 0
+    while obj.parent:
+        depth += 1
+        obj = obj.parent
+    return depth
+# def add_property(objects, property_name, value):
+#     for obj in objects:
+#         if obj.type == 'MESH':
+#             obj[property_name] = value
 
 class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
     """Exports selected object and its children (or parents) into FBX file.\nOne selected object = One .FBX. Multiple object selection will result in multiple .FBX"""
@@ -86,13 +174,19 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
     bl_label = "Exports obj"
     bl_options = {'REGISTER', 'UNDO'}
     
+
+    """They are the firtst node with PARENT tag. It can have a parent but exporter is intentionally limited to first occurance."""
     export_hidden:bpy.props.BoolProperty(name="Export Hidden", description="Exports all objects in hierarchy including hidden objects.", default=True, options={'HIDDEN'})
     export_for_mask:bpy.props.BoolProperty(name="Export For Mask", description="Exports object with material and UV override in mind", default=False, options={'HIDDEN'})
-    ADDON_ROOT = Path(__file__).resolve().parents[1]
-    exported_objects = []
-    selection_capture = None
+    
     def execute(self, context): 
-        
+        self.ADDON_ROOT = Path(__file__).resolve().parents[1]
+        self.exported_objects = []
+        self.preprocess_obj_duplicates = set()
+        self.export_nodes = set()
+        self.main_export_nodes: list = [] 
+
+
         if bpy.data.is_saved == False: #Saved file check
             message = f'Save .Blend file first. Cancelled'
             self.report({'WARNING'}, message)
@@ -109,13 +203,11 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
         if bpy.context.object.mode != 'OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')
 
-
-
         # ------ PRE-PROCESS ------
               
         lr_export_settings_scene = bpy.context.scene.lr_export_settings_scene
 
-        store_selection = bpy.context.selected_objects
+        store_selection = list(bpy.context.selected_objects)
         store_active_selection = bpy.context.view_layer.objects.active
         
         # objects_to_evaluate = bpy.context.selected_objects #Initial selection
@@ -127,50 +219,233 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
         #     for obj in objects_to_evaluate:
         #         obj_parent = obj.parent
         #         if obj_parent != None: 
-        #             while obj_parent is not None:   # If the object has a parrent find the upper-most and add to evaluation
+        #             while obj_parent is not None:   # If the object has a parent find the upper-most and add to evaluation
         #                 obj_parent_top = obj_parent
         #                 obj_parent = obj_parent.parent
-                
         #             obj_parent_top_list.append(obj_parent_top)
         #         else:
         #             obj_parent_top_list.append(obj)
 
-                
-
         #     objects_to_evaluate = obj_parent_top_list
 
-
-
         objects_to_evaluate = []
+        all_src_objects_for_export = set()
+        objects_in_hierarchy= set()
+        root_preprocess_nodes = set()
+        #Check selected
         for obj in bpy.context.selected_objects:
-            if obj.lr_object_export_settings.object_mode == 'PARENT':
-                objects_to_evaluate.append(obj)
+
+            # --- Find preprocess root (absolute root only) ---
+            obj_parent = obj
+            while obj_parent != None: #Crawl to the top and check if there is preprocess script
+                if obj_parent.lr_object_export_settings.python_scripts_prepro != 'NONE' and not obj_parent.parent:
+                    root_preprocess_nodes.add(obj_parent)
+                obj_parent = obj_parent.parent
+            
+
+            # If parent is present crawl up until first export node is found (.object_mode == 'PARENT')
+            obj_parent = obj.parent
+            if obj_parent == None: #Has no parent
+                objects_in_hierarchy.update(obj.children_recursive)
+                objects_in_hierarchy.add(obj)
                 continue
 
-            obj_parent = obj.parent
-            if obj_parent != None: 
-                while obj_parent is not None:   # If the object has a parrent find the upper-most and add to evaluation
-                    # print(obj_parent.name)
-                    if obj_parent.lr_object_export_settings.object_mode == 'PARENT':
-                        objects_to_evaluate.append(obj_parent)
-                        break
 
-                    obj_parent = obj_parent.parent
+            # --- Find first export node ---
+            obj_parent = obj #Start with object itself
+            while obj_parent != None: #Has parent
+                if obj_parent.lr_object_export_settings.object_mode == 'PARENT':
 
-        for obj in list(objects_to_evaluate):
-            for child in obj.children_recursive:
-                if child.lr_object_export_settings.object_mode != 'PARENT':
-                    continue
-                if child not in objects_to_evaluate:
-                    objects_to_evaluate.append(child)
-        #Each object in list to evaluate. 
+                    objects_in_hierarchy.update(obj_parent.children_recursive)
+                    objects_in_hierarchy.add(obj_parent)
+                    break #Lets check only first occurence of export node. Meaning it will not export multiple upper export nodes only first.
+                obj_parent = obj_parent.parent
+
+                
+    
+        # Collect export nodes
+        for obj in objects_in_hierarchy:
+            if obj.lr_object_export_settings.object_mode == "PARENT":
+                self.export_nodes.add(obj)
+
+        if not self.export_nodes:
+            self.report({'WARNING'}, "No objects have 'Export Recursive' Mode on in hierarchy.")
+            return {'CANCELLED'}
+
+
+        #Unhide all 
+        for obj in self.export_nodes:
+            all_src_objects_for_export.update(obj.children_recursive)
+            all_src_objects_for_export.add(obj) # Also add parent
+        
+
+
+
+        #Im using custom scripts inside exporter - cant influence code user does like making data unique and duplicating. 
+        # Collecting all influenced data and then clean up on data is by comparing against this capture and removing extra.
+        meshes_start_capture = set(bpy.data.meshes)
+
+        src_obj_hidden = set()
+        src_obj_viewport_hidden=set()
+        all_src_objects_data_for_export = set()
+        src_obj_local_view_info = {}
+        #Visibility Stuff
+        
+        #Local View
+        local_views = get_local_views() # bpy.data.screen.areas[3].spaces[0]
+        if local_views:
+            for view in local_views:
+                src_obj_local_view_info.setdefault(view,[])
+
+
+        for obj in all_src_objects_for_export:
+            if not obj.users_collection:
+                continue
+
+
+            if obj.hide_get(view_layer=bpy.context.view_layer):
+                obj.lr_object_export_settings["orig_hidden"] = True
+                src_obj_hidden.add(obj)
+            else:
+                obj.lr_object_export_settings["orig_hidden"] = False
+
+            if obj.hide_viewport:
+                obj.lr_object_export_settings["orig_viewport_hidden"] = True
+                src_obj_viewport_hidden.add(obj)
+            else:
+                obj.lr_object_export_settings["orig_viewport_hidden"] = False
+
+            for view, obj_list in src_obj_local_view_info.items():
+                if not obj.local_view_get(view): # True = in local view
+                    obj_list.append(obj)
+                    obj.local_view_set(view,True)
+
+
+            obj.lr_object_export_settings["orig_name"] = obj.name # Used for precise matching after duplication
+            
+            
+            
+            # obj.lr_object_export_settings["orig_data_name"] = obj.data.name
+            # Create metadata dict for this object
+
+            if hasattr(obj,"data") and obj.data is not None:
+                all_src_objects_data_for_export.add(obj.data)
+                
+
+
+        for data in all_src_objects_data_for_export:
+            data["orig_data_name"] = data.name
+            # data.name = data.name + "_LRExportBackupOD~"
+
+        # Unhide all if needed
+        if self.export_hidden:
+            for obj in src_obj_hidden:
+                obj.hide_set(False)
+            for obj in src_obj_viewport_hidden:
+                obj.hide_viewport = False
+
+        # all_src_objects_for_export = list(all_src_objects_for_export)
+
+
+
+        # All objects that are part of export are unhidden and checked (original objects before duplication). 
+
+        original_objs_dict = {}
+
+        #Store Initial Selection
+        # store_active_obj = bpy.context.view_layer.objects.active
+        # store_selection = bpy.context.selected_objects
+        
+        
+
+
+       
+        # Renaming
+        for obj in all_src_objects_for_export:
+            all_src_objects_data_for_export.add(obj.data)
+        
+        for obj in all_src_objects_for_export:
+            obj.name = obj.name+"_LRExportBackup~"
+            
+
+        # -----
+        # Preprocess
+        # -----
+        if len(root_preprocess_nodes) > 0:
+            #Duplicate preprocess objs
+            all_root_preproc_obj_duplicates = set() # Set to remove them during cleanup
+            for root_preproc_node in root_preprocess_nodes:
+                self.preprocess_obj_duplicates = set()
+                root_preproc_node_objs = set()
+                bpy.ops.object.select_all(action='DESELECT')
+                bpy.context.view_layer.objects.active = root_preproc_node
+                # root_preproc_node.select_set(True)
+
+                for child in root_preproc_node.children_recursive:
+                    root_preproc_node_objs.add(child)
+                root_preproc_node_objs.add(root_preproc_node)
+
+                root_preproc_node_objs_filtered = all_src_objects_for_export & root_preproc_node_objs #No need to change objects that are not exported  
+                    
+                for obj in root_preproc_node_objs_filtered:
+                    obj.select_set(True)
+
+                preprocess_export_dict={}
+                for obj in root_preproc_node_objs_filtered:
+                    preprocess_export_dict.update({obj.lr_object_export_settings["orig_name"] : obj})
+                    if obj.lr_object_export_settings.object_mode == 'PARENT': 
+                        self.export_nodes.remove(obj) # Remove original wont be exported - Replaced by duplicate
+
+
+                bpy.ops.object.duplicate(linked=True) #Only happens when preprocess is used
+
+
+                preprocess_export_dict_duplicate = {}
+                for obj in bpy.context.selected_objects:
+                    if obj not in preprocess_export_dict.values():  # means it's a duplicate
+                        orig_name = obj.lr_object_export_settings["orig_name"]
+                        preprocess_export_dict_duplicate[orig_name] = obj
+                        if obj.lr_object_export_settings.object_mode == 'PARENT':
+                            self.export_nodes.add(obj) # Use new duplicates to export
+
+
+                for name,obj in preprocess_export_dict_duplicate.items():
+                    obj.name = name
+
+
+                self.preprocess_obj_duplicates = set(preprocess_export_dict_duplicate.values()) # For preprocess script
+                
+                all_root_preproc_obj_duplicates.update(preprocess_export_dict_duplicate.values())
+
+                try:
+                    script_file = self.ADDON_ROOT / "scripts_preprocess" / root_preproc_node.lr_object_export_settings.python_scripts_prepro
+                    namespace = {
+                        "__file__": str(script_file),
+                        "__name__": "__lr_export_script_preprocess__",
+                        "self": self,
+                        "context": context,
+                    }
+
+                    with open(script_file, "r", encoding="utf-8") as f:
+                        exec(f.read(), namespace)
+                
+                except Exception as e:
+                    self.report({'ERROR'}, f"Error executing preprocess script {export_node_dupl.lr_object_export_settings.python_scripts}: {e}")
+
+
+                #Name the objects
+                for obj in self.preprocess_obj_duplicates:
+                    obj.name = obj.name+"_LRDuplPreprocessObjs~"
 
 
 
 
 
-        # ------------ ADD EXPORTED OBJECTS TO LOCAL VIEW IF LOCAL VIEW IS ENABLED ------------
-        objects_in_local_view, active_viewport =get_objects_in_local_view()
+
+
+            #Execute Script on preprocess objects - rename to original
+        
+
 
 
 
@@ -179,14 +454,14 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
             lp_suffix = '_lp'
             hp_suffix = '_hp'
             
-            if len(objects_to_evaluate) >= 2:
+            if len(self.export_nodes) >= 2:
                 hp_root = []
                 lp_root = []
 
                 lp_names = []
                 hp_names = []
 
-                for selected_obj in objects_to_evaluate:
+                for selected_obj in self.export_nodes:
                     if selected_obj.type != 'EMPTY':
                         continue
                     if selected_obj.name.lower().endswith(lp_suffix):
@@ -253,119 +528,111 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
             
             else:
                 message = f'At laest two objects need to be selected.'
-                self.report({'INFO'}, message)
-
-
-        # ----------
-        #   PRE-PROCESS - Optional
-        #   duplicate geometry and do specified tasks like uv preparation and deinstancing. 
-        #   This needs to be here because each exported object need to have the same uv packing.
-        # ----------
-
-        
-
-
+                self.report({'INFO'}, message)    
 
         # ---------
         #   Object to evaluate is a root object to be exported. This object + descendants will be exported as one fbx.
         # ---------
-        for obj_evaluated in list(dict.fromkeys(objects_to_evaluate)): #Remove duplicates
+
+        
+        for export_node in self.export_nodes:
+            
             self.exported_objects.clear()
-            self.parent_object = obj_evaluated
+
             time_start = time.time()
-
-            if obj_evaluated.lr_object_export_settings.object_mode == 'NOT_EXPORTED':
-                continue
-
 
 
             bpy.ops.object.select_all(action='DESELECT')
               
             # bpy.ops.object.duplicates_make_real(use_hierarchy=True) WILL BE NEEDED FOR GEOMETRY NODES
-            parent_and_children = []
-            parent_and_children.append(obj_evaluated)
-            parent_and_children.extend(obj_evaluated.children_recursive)
+            export_node_and_children = []
+            export_node_and_children.append(export_node)
+            export_node_and_children.extend(export_node.children_recursive)
             
-            
-            object_hidden = []
-            object_hidden_in_viewport = []
 
-            for obj in parent_and_children:
-                if obj.name not in bpy.context.view_layer.objects:
+            for obj in export_node_and_children:
+                if not obj.users_collection:
                     continue
+                obj.select_set(True) #Only one obj selection matters which is here and line below.
+            
+            bpy.context.view_layer.objects.active = export_node #Active object is important for transform and naming.
+            # print("Active object before duplication: ", bpy.context.view_layer.objects.active)
+            # print("Selected objects before duplication:", bpy.context.selected_objects)
+            export_obj_dict={}
+            for obj in export_node_and_children:
+                export_obj_dict.update({obj.lr_object_export_settings["orig_name"] : obj})
+            export_active_obj_dict = {export_node.lr_object_export_settings["orig_name"]: export_node}
+
+            
+            
+            # ----------
+            # Duplicate
+            # ----------
+            bpy.ops.object.duplicate(linked=True) 
+
+
+
+            # export_node_and_children_dupl = [obj for obj in bpy.data.objects if obj.select_get() == True]
+            export_node_and_children_dupl = bpy.context.selected_objects
+
+            export_obj_dict_dupl={}
+            for obj in export_node_and_children_dupl:
+                #Restore Orig name before export:
+                obj.name = obj.lr_object_export_settings["orig_name"]
+                export_obj_dict_dupl.update({obj.lr_object_export_settings["orig_name"] : obj})
+            
+            
+            #Resolve active object after duplication
+            export_node_dupl = None
+            if bpy.context.view_layer.objects.active.lr_object_export_settings["orig_name"] in export_obj_dict_dupl:
+                export_node_dupl = bpy.context.view_layer.objects.active
+            else:
+                for obj in export_node_and_children_dupl:
+                    if obj.lr_object_export_settings["orig_name"] in export_active_obj_dict:
+                        export_node_dupl = obj
+                        bpy.context.view_layer.objects.active=export_node_dupl
+            
                 
-                if self.export_hidden == True: #Unhide objects before export if wanted.
-                    if obj.hide_viewport == True:
-                        object_hidden_in_viewport.append(obj)
-                        obj.hide_viewport = False
-                    
-                    if obj.hide_get(view_layer=bpy.context.view_layer) == True:
-                        object_hidden.append(obj)
-                        obj.hide_set(False)
-
-                obj.select_set(True) #Only one obj selection matters which is here and line below. This needs to be after unhide. In Blender hidden selected object count as unselected.
-            
-
-            bpy.context.view_layer.objects.active = obj_evaluated #Active object is important for transform and naming.
 
 
-            if objects_in_local_view != None:
-                change_local_view_on_objects(parent_and_children,active_viewport,add_to_local_view=True)
+            # ----------
+            # Naming after duplication
+            # ----------
+
+            self.exported_objects = list(export_node_and_children_dupl)
+            # bpy.ops.object.select_all(action='DESELECT')
 
 
-            obj_info_before = utils.SelectionCapture()
 
-            #--- PREPARATION ---
-            #After duplication Blender automatically selects newly created objects
-            bpy.ops.object.duplicate(linked=True) #All obj properties are copied during ops.duplicate()
-            
-            obj_info_after = utils.SelectionCapture()
-            
-
-            #Naming objects
-            
-            #Add suffix to old objs
-            obj_info_before.add_suffix('_NameBackup')
-            obj_info_before.add_data_suffix('_DataNameBackup')
-            
-            
-            obj_info_after.restore_object_names(obj_info_before.selected_objs_names)
-            obj_info_after.restore_object_data_names(obj_info_before.selected_objs_data_names)
-            self.exported_objects = context.selected_objects #Should be improved later.
-            #--- PREPARATION END ---
 
 
             #Remove any parents in case of exporting a child object
-            obj_info_after.active_obj.parent = None
+            export_node_dupl.parent = None
 
-            #Add metadata
             raw_path = bpy.data.filepath
-            if raw_path:
-                obj_info_after.add_property("BlendSrc", raw_path.replace('\\','/'))
-            else:
-                obj_info_after.add_property("BlendSrc", "Unsaved_File")
+            if not raw_path:
+                raw_path = ""
+            for obj in self.exported_objects:
+                obj.name = obj.lr_object_export_settings["orig_name"]
 
-            #Reset position
-            if obj_info_after.active_obj.lr_object_export_settings.get("lr_export_reset_position") == 0:
-                pass
-            else:
-                obj_info_after.active_obj.location = 0,0,0
-            
-            #Reset rotation
-            if obj_info_after.active_obj.lr_object_export_settings.get("lr_export_reset_rotation") == 0:
-                pass
-            else:
-                obj_info_after.active_obj.rotation_euler = 0,0,0
+                obj["BlendSrc"] = raw_path.replace("\\","/")
 
-            #----------------------------
-            #Custom operations:
-            #
-            obj_info_after.deselect_formask_objects()
-            
-            self.selection_capture = obj_info_after
-            if obj_evaluated.lr_object_export_settings.python_scripts != 'NONE':
+
+            # Reset position
+            if export_node_dupl.lr_object_export_settings.lr_export_reset_position:
+                export_node_dupl.location = (0, 0, 0)
+
+            # Reset rotation
+            if export_node_dupl.lr_object_export_settings.lr_export_reset_rotation:
+                export_node_dupl.rotation_euler = (0, 0, 0)
+
+            # --------------------
+            # Custom operations:
+            # --------------------
+           
+            if export_node_dupl.lr_object_export_settings.python_scripts != 'NONE':
                 try:
-                    script_file = self.ADDON_ROOT / "scripts" / obj_evaluated.lr_object_export_settings.python_scripts
+                    script_file = self.ADDON_ROOT / "scripts" / export_node_dupl.lr_object_export_settings.python_scripts
                     namespace = {
                         "__file__": str(script_file),
                         "__name__": "__lr_export_script__",
@@ -377,42 +644,14 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
                         exec(f.read(), namespace)
                 
                 except Exception as e:
-                    self.report({'ERROR'}, f"Error executing script {obj_evaluated.lr_object_export_settings.python_scripts}: {e}")
+                    self.report({'ERROR'}, f"Error executing script {export_node_dupl.lr_object_export_settings.python_scripts}: {e}")
 
-
-
-
-            # if self.export_for_mask:
-            #     obj_info_after.deselect_ignored_objects() #Deselect object which are marked as Ignored.
-            #     obj_info_after.material_override()
-            #     obj_info_after.remove_all_but_one_uv()     
-            # else:
-            #     obj_info_after.deselect_ignored_objects() #Deselect object which are marked as Ignored and marked as for mask only.
-                
-
-
-            # if obj_evaluated.lr_object_export_settings.uvs_unwrap or obj_evaluated.lr_object_export_settings.uvs_pack or obj_evaluated.lr_object_export_settings.uvs_average_scale:
-            #     obj_info_after.uv_edit(uv_index=obj_evaluated.lr_object_export_settings.uvs_index,
-            #                         unwrap= obj_evaluated.lr_object_export_settings.uvs_unwrap,
-            #                         unwrap_method= obj_evaluated.lr_object_export_settings.uvs_unwrap_method,
-            #                         unwrap_margin= obj_evaluated.lr_object_export_settings.uvs_unwrap_margin,
-            #                         average_scale= obj_evaluated.lr_object_export_settings.uvs_average_scale,
-            #                         pack_islands= obj_evaluated.lr_object_export_settings.uvs_pack,
-            #                         pack_margin= obj_evaluated.lr_object_export_settings.uvs_pack_margin)
-
-
-
-
-
-            # if self.export_for_mask == True:
-            #     obj_info_after.material_override()
-            #     obj_info_after.remove_all_but_one_uv()
 
 
             #--- NAMING FBX ---
             blend_path = bpy.path.abspath('//')
-            ui_export_path = bpy.data.scenes['Scene'].lr_export_settings_scene.export_path
-            file_name = obj_info_after.active_obj.name
+            ui_export_path = lr_export_settings_scene.export_path
+            file_name = export_node_dupl.name
             
             prefix = lr_export_settings_scene.export_sm_prefix
 
@@ -426,19 +665,40 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
 
             file_format = '.fbx'
 
-
-            object_subbolder = obj_info_after.active_obj.lr_object_export_settings.get('lr_exportsubfolder')
+            object_subbolder = export_node_dupl.lr_object_export_settings.get('lr_exportsubfolder')
             if object_subbolder == None:
                 object_subbolder = ''
 
-                
+
             export_path = os.path.join(bpy.path.abspath(ui_export_path), object_subbolder)
             export_file = os.path.join(export_path,filename_prefix_suffix+file_format)
             if os.path.exists(export_path) == False:
                 os.makedirs(export_path)
 
+            # print("Selected right before export:", bpy.context.selected_objects)
+            # for obj in bpy.data.objects:
+            #     print(obj.name,": ", obj.select_get())
 
-            
+            #Debug
+            print("--- DEBUG RIGHT BEFORE EXPORT ---: ")
+            print(f"Number of exported objects: {len(bpy.context.selected_objects)}")
+            for obj in bpy.context.selected_objects:
+                if obj.type != "MESH":
+                    continue
+                
+                print(f"Obj: {obj.name}")
+                print(f"number of mat slots obj: {len(obj.material_slots)}, data: {len(obj.data.materials)}")
+
+                for idx, mat_slot in enumerate(obj.material_slots):
+                    print(f"Object Index: {idx} has material: {mat_slot.name}")
+
+
+                for idx, mat_slot in enumerate(obj.data.materials):
+                    print(f"Data Index: {idx} has material: {mat_slot.name}")
+
+
+                print("---")
+            print("--- DEBUG RIGHT BEFORE EXPORT END---: ")
 
             bpy.ops.export_scene.fbx(filepath = str(export_file),
                                      check_existing=False,
@@ -451,6 +711,7 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
                                      use_metadata=True,
                                      add_leaf_bones=False) 
 
+
             if lr_export_settings_scene.send_payload:
                 utils.send_payload_to_listener(
                     payload={
@@ -459,6 +720,7 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
                     },
                     operator=self
                 )
+
 
             # bpy.ops.export_scene.fbx(
                 # filepath=GetExportFullpath(dirpath, filename),
@@ -478,33 +740,25 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
                 # axis_up=active.exportAxisUp,
                 # bake_space_transform=False
                 # )
-           
+
            #--- NAMING END ---
 
+
             #--- CLEANUP ---
-            obj_info_after.remove_objects()
 
-            # Restore obj names
-            obj_info_before.restore_object_names()
-            obj_info_before.restore_object_data_names()
-                
-            #Return visibility settings
-            if self.export_hidden == True: #Unhide objects before export if wanted.
-                for obj in object_hidden_in_viewport:
-                    obj.hide_viewport = True
-
-                for obj in object_hidden:
-                    obj.hide_set(True)
+            #
+            for obj in list(bpy.context.selected_objects):
+                bpy.data.objects.remove(obj, do_unlink=True)
 
 
             #Return local view object state
-            obj_to_remove_from_local_view = []
-            if objects_in_local_view != None:
-                for obj in parent_and_children:
-                    if obj not in objects_in_local_view:
-                        obj_to_remove_from_local_view.append(obj)
+            # obj_to_remove_from_local_view = []
+            # if objects_in_local_view != None:
+            #     for obj in export_node_and_children:
+            #         if obj not in objects_in_local_view:
+            #             obj_to_remove_from_local_view.append(obj)
 
-                change_local_view_on_objects(obj_to_remove_from_local_view,active_viewport,add_to_local_view=False)
+            #     change_local_view_on_objects(obj_to_remove_from_local_view,active_viewport,add_to_local_view=False)
 
             if filename_prefix_suffix == None:
                 message = f'Nothing Exported'
@@ -516,13 +770,41 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
                 self.report({'INFO'}, message)
             #--- CLEANUP END ---
         
+        if len(root_preprocess_nodes) > 0:
+            for obj in all_root_preproc_obj_duplicates:
+                bpy.data.objects.remove(obj,do_unlink=True)
+
+        #Duplicated data cleanum
+        meshes_done_capture = set(bpy.data.meshes)
+
+        meshes_extra = meshes_done_capture - meshes_start_capture
+    
+        for mesh in meshes_extra:
+            bpy.data.meshes.remove(mesh, do_unlink=True)
+
+
+        #Return visibility settings
+        for obj in src_obj_hidden:
+            obj.hide_set(True)
+
+        for obj in src_obj_viewport_hidden:
+            obj.hide_viewport = True
+
+        # Hide in local view
+        for view, obj_list in src_obj_local_view_info.items():
+            for obj in obj_list:
+                obj.local_view_set(view,False)
+
+
         # Additionally remove Created HPs
         if lr_export_settings_scene.add_missing_hp == True:
             if len(objects_to_evaluate) >= 2:
-                
                 for obj in created_hp_objs:
                     bpy.data.objects.remove(bpy.data.objects.get(obj.name),do_unlink=True)
 
+        #Restore obj names
+        for obj in all_src_objects_for_export:
+            obj.name = obj.lr_object_export_settings["orig_name"]
 
         #Return initial selection
         bpy.ops.object.select_all(action='DESELECT')

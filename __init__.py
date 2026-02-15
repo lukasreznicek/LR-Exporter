@@ -39,9 +39,6 @@ from bpy.props import IntProperty, CollectionProperty, StringProperty,FloatVecto
 def get_addon_dir():
     return pathlib.Path(__file__).parent
 
-
-
-
 def load_script_docstring(path):
     namespace = {"__name__": "lr_preview"} 
 
@@ -57,7 +54,39 @@ _script_cache = {}  # global: { path_str: { "mtime": float, "doc": str } }
 
 def list_python_files(self, context):
     addon_dir = get_addon_dir() / "scripts"
-    items = [("NONE", "No Custom Script", "","PANEL_CLOSE",0)]
+    items = [("NONE", "No Script", "","PANEL_CLOSE",0)]
+
+    for file in addon_dir.iterdir():
+        if not (file.is_file() and file.suffix == ".py"):
+            continue
+
+        path_str = str(file)
+        mtime = os.path.getmtime(file)
+
+        cached = _script_cache.get(path_str)
+
+        # Cache miss or file changed
+        if cached is None or cached["mtime"] != mtime:
+            doc = load_script_docstring(file)
+            _script_cache[path_str] = {
+                "mtime": mtime,
+                "doc": doc,
+            }
+        else:
+            doc = cached["doc"]
+
+        tooltip = doc if doc else f"Run {file.name}"
+
+        items.append((
+            file.name,   # identifier
+            file.stem,   # display name
+            tooltip      # tooltip
+        ))
+    return items
+
+def list_python_preprocess_files(self, context):
+    addon_dir = get_addon_dir() / "scripts_preprocess"
+    items = [("NONE", "No Preprocess Script", "","PANEL_CLOSE",0)]
 
     for file in addon_dir.iterdir():
         if not (file.is_file() and file.suffix == ".py"):
@@ -87,8 +116,6 @@ def list_python_files(self, context):
         ))
 
     return items
-
-
     if not items:
         items.append(("NONE", "No scripts found", ""))
 
@@ -121,8 +148,8 @@ class LR_ExportSettings_Scene(bpy.types.PropertyGroup):
     
 
     #Importer
-    lr_import_remove_mesh: bpy.props.BoolProperty(name="Remove mesh as well",description= 'During reimport additionally delete mesh objects from .blend file. Slow with losts of meshes. When disabled is best to purge orphan data manually. Often faster. \n\nObject IS deleted even when this option is Off', default=False)# type: ignore
-    lr_import_material_cleanup: bpy.props.BoolProperty(name="Clean Materials",description= 'Default Blender import always include materials. If scene has material with the same name it will be duplicated with .001 suffix. This will reassigns the material to the one without suffix and removes the suffix one', default=True)# type: ignore
+    lr_import_remove_mesh: bpy.props.BoolProperty(name="Remove mesh as well",description= '', default=False)# type: ignore
+    lr_import_material_cleanup: bpy.props.BoolProperty(name="Clean Materials",description= '', default=True)# type: ignore
     
     
     
@@ -197,10 +224,18 @@ class LR_ExportSettings_Object(bpy.types.PropertyGroup):
             '(Optional, Object Setting)\n\nDeletes all UVs except one specified.\n-If empty, nothing is changed.\n-All child objects take highest parent value if not specified'
             ),
         maxlen=64,
-        default="",
+        default="",)# type: ignore
 
+    processing_orig_name:bpy.props.StringProperty(
+        name="orig_name",
+        description=(""),
+        maxlen=64,
+        default="",)# type: ignore
+    processing_original:bpy.props.BoolProperty(
+        name="Clear Location",
+        description=('To identify if object during export is original or duplicate'),
+        default=False
         )# type: ignore
-
 
     lr_export_reset_position:bpy.props.BoolProperty(
         name="Clear Location",
@@ -239,7 +274,7 @@ class LR_ExportSettings_Object(bpy.types.PropertyGroup):
     
 
     python_scripts:bpy.props.EnumProperty(name="Script",description="Select a Python script",items=list_python_files)
-
+    python_scripts_prepro:bpy.props.EnumProperty(name="Script Prepro",description="Select a Python preprocess script",items=list_python_preprocess_files)
 
     # lr_export_add_missing_hp:bpy.props.BoolProperty(
     #     name="Add missing HP",
@@ -252,26 +287,6 @@ class LR_ExportSettings_Object(bpy.types.PropertyGroup):
     #     description=('Adds missing HP objects during export for baking. Detects _LP and _HP suffix.'),
     #     default=False
     #     )
-
- 
-# Define the subpanel
-class VIEW3D_PT_ObjectProperties(bpy.types.Panel):
-    bl_label = "Subpanel"
-    bl_idname = "OBJECT_PT_SimpleSubpanel"
-    bl_parent_id = "OBJECT_PT_lr_export"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-
-    def draw(self, context):
-        lr_export_settings_scene = context.scene.lr_export_settings_scene
-        layout = self.layout
-        row = layout.column()
-        row.prop(lr_export_settings_scene, "export_sm_prefix", slider=True)
-        layout.operator("object.lr_exporter_export", text="Export", icon = 'EXPORT')
-        layout.operator("object.lr_exporter_export", text="Export", icon = 'EXPORT')
-        layout.operator("object.lr_exporter_export", text="Export", icon = 'EXPORT')
-        layout.operator("object.lr_exporter_export", text="Export", icon = 'EXPORT')
-
 
 
 class VIEW3D_PT_lr_export(bpy.types.Panel):
@@ -335,10 +350,19 @@ class VIEW3D_PT_lr_export(bpy.types.Panel):
         row.prop(context.object.lr_object_export_settings,'lr_export_reset_position')
         row.prop(context.object.lr_object_export_settings,'lr_export_reset_rotation')
                  #Setting is avaliable on parent object only
-        if lr_object_export_settings.object_mode == "PARENT":
-            row = layout.row(align=True)  
+        if lr_object_export_settings.object_mode == "PARENT" and context.object.parent is None and context.object.lr_object_export_settings.python_scripts == "NONE":
+            row = layout.row(align=True)
+            row.prop(lr_object_export_settings, "python_scripts_prepro")
+            op = row.operator("wm.lr_exporter_open_scripts_folder", text="", icon='FILE_FOLDER')
+            op.subfolder = "scripts_preprocess"
+
+        if lr_object_export_settings.object_mode == "PARENT" and context.object.lr_object_export_settings.python_scripts_prepro == "NONE":
+            row = layout.row(align=True)
             row.prop(lr_object_export_settings, "python_scripts")
-            row.operator("wm.lr_exporter_open_scripts_folder", text="", icon='FILE_FOLDER')
+            op = row.operator("wm.lr_exporter_open_scripts_folder", text="", icon='FILE_FOLDER')
+            op.subfolder = "scripts"
+
+
 
         # ------------ UV Manipulation ------------ ONLY IN Blender 4.1
         
