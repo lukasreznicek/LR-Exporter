@@ -5,7 +5,7 @@
 4. Makes sure only one UV map "UVMap"  per object. Packs all exported objects into that UV map.
 """
 import bpy
-def rename_obj(self, context):
+def main(self, context):
     current_name = self.selection_capture.active_obj.name
     # self.selection_capture.active_obj.name = current_name+"_mask"
 
@@ -52,7 +52,6 @@ def rename_obj(self, context):
     bpy.ops.uv.pack_islands(rotate=False, margin=0.001)
     bpy.ops.object.mode_set(mode='OBJECT')
 
-
     # ----------
     # Assign single material to all exported objects
     # ----------
@@ -70,9 +69,3 @@ def rename_obj(self, context):
 
         # Add the first material slot back
         obj.data.materials.append(new_mat)
-
-if __name__ == "__lr_export_script__": 
-    rename_obj(self, context)
-
-
-

@@ -28,10 +28,6 @@ class root_node_capture:
 
 
 
-
-
-
-
 class SelectionCapture():
     def __init__(self):
         self.active_obj = None

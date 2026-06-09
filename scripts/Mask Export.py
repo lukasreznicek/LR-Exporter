@@ -5,7 +5,7 @@
 4. Retains only one UV map "UVMap"  per object.
 """
 import bpy
-def rename_obj(self, context):
+def main(self, context):
     current_name = self.selection_capture.active_obj.name
     # self.selection_capture.active_obj.name = current_name+"_mask"
 
@@ -64,9 +64,3 @@ def rename_obj(self, context):
 
         # Add the first material slot back
         obj.data.materials.append(new_mat)
-
-if __name__ == "__lr_export_script__": 
-    rename_obj(self, context)
-
-
-

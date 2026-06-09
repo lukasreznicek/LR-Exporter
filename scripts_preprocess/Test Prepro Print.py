@@ -2,8 +2,8 @@
 '''
 Writes object names of all selected objects to the console during export.
 '''
-print("READING")
-def print_names(self, context):
+
+def main(self, context):
     print("--- PREPROCESS ---")
     print("Selected objects for export:")
     for obj in self.preprocess_obj_duplicates:
@@ -15,6 +15,3 @@ def print_names(self, context):
         print("---")
     print("--- PREPROCESS END ---")
 
-
-if __name__ == "__lr_export_script_preprocess__": 
-    print_names(self, context)

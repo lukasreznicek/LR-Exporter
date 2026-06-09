@@ -3,7 +3,7 @@ from . import utils
 import time
 from pathlib import Path
 import subprocess
-
+from ..shared import PYTHON_SCRIPT_MODULES, PYTHON_PREPRO_SCRIPT_MODULES
 @staticmethod
 def get_active_3d_viewport():
     """Return a VIEW_3D space, trying context first, then fallback to first 3D viewport."""
@@ -21,7 +21,6 @@ def get_active_3d_viewport():
                     return space
     return None
 
-
 def get_local_views():
     local_views = []
     for area in bpy.context.screen.areas:
@@ -31,7 +30,6 @@ def get_local_views():
                     if space.local_view:
                         local_views.append(space)
     return local_views
-
 
 @staticmethod
 def objects_not_in_local_view(obj_list):
@@ -78,7 +76,6 @@ def get_objects_in_local_view():
                             viewport_space = space
 
     if bool(viewport_space.local_view) == True:
-
         depsgraph = bpy.context.evaluated_depsgraph_get()
         objects_in_local_view =[]
         for obj in bpy.data.objects:
@@ -86,8 +83,6 @@ def get_objects_in_local_view():
             # obj.local_view_set(viewport_space, True)
             if export_node.local_view_get(viewport_space):
                 objects_in_local_view.append(obj)
-                
-
         return objects_in_local_view,viewport_space
     else: 
         return None,None
@@ -173,25 +168,21 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
     bl_idname = "object.lr_exporter_export"
     bl_label = "Exports obj"
     bl_options = {'REGISTER', 'UNDO'}
-    
 
     """They are the firtst node with PARENT tag. It can have a parent but exporter is intentionally limited to first occurance."""
     export_hidden:bpy.props.BoolProperty(name="Export Hidden", description="Exports all objects in hierarchy including hidden objects.", default=True, options={'HIDDEN'})
-    export_for_mask:bpy.props.BoolProperty(name="Export For Mask", description="Exports object with material and UV override in mind", default=False, options={'HIDDEN'})
+    # export_for_mask:bpy.props.BoolProperty(name="Export For Mask", description="Exports object with material and UV override in mind", default=False, options={'HIDDEN'})
     
     def execute(self, context): 
         self.ADDON_ROOT = Path(__file__).resolve().parents[1]
-        self.exported_objects = []
-        self.preprocess_obj_duplicates = set()
-        self.export_nodes = set()
-        self.main_export_nodes: list = [] 
-
+        self._exported_objects = [] #All objects to be exported, updated each export
+        self._preprocess_obj_duplicates = set() #Duplicated original objects to be used for preprocess, for inserted script use.
+        self._export_nodes = set()
 
         if bpy.data.is_saved == False: #Saved file check
             message = f'Save .Blend file first. Cancelled'
             self.report({'WARNING'}, message)
             return {'FINISHED'}
-
 
         if len(bpy.context.selected_objects) == 0:   #Check for selected files
             message = 'No object selected'
@@ -202,6 +193,9 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
         
         if bpy.context.object.mode != 'OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')
+
+
+
 
         # ------ PRE-PROCESS ------
               
@@ -266,15 +260,15 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
         # Collect export nodes
         for obj in objects_in_hierarchy:
             if obj.lr_object_export_settings.object_mode == "PARENT":
-                self.export_nodes.add(obj)
+                self._export_nodes.add(obj)
 
-        if not self.export_nodes:
+        if not self._export_nodes:
             self.report({'WARNING'}, "No objects have 'Export Recursive' Mode on in hierarchy.")
             return {'CANCELLED'}
 
 
         #Unhide all 
-        for obj in self.export_nodes:
+        for obj in self._export_nodes:
             all_src_objects_for_export.update(obj.children_recursive)
             all_src_objects_for_export.add(obj) # Also add parent
         
@@ -375,7 +369,7 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
             #Duplicate preprocess objs
             all_root_preproc_obj_duplicates = set() # Set to remove them during cleanup
             for root_preproc_node in root_preprocess_nodes:
-                self.preprocess_obj_duplicates = set()
+                self._preprocess_obj_duplicates = set()
                 root_preproc_node_objs = set()
                 bpy.ops.object.select_all(action='DESELECT')
                 bpy.context.view_layer.objects.active = root_preproc_node
@@ -394,7 +388,7 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
                 for obj in root_preproc_node_objs_filtered:
                     preprocess_export_dict.update({obj.lr_object_export_settings["orig_name"] : obj})
                     if obj.lr_object_export_settings.object_mode == 'PARENT': 
-                        self.export_nodes.remove(obj) # Remove original wont be exported - Replaced by duplicate
+                        self._export_nodes.remove(obj) # Remove original wont be exported - Replaced by duplicate
 
 
                 bpy.ops.object.duplicate(linked=True) #Only happens when preprocess is used
@@ -406,35 +400,59 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
                         orig_name = obj.lr_object_export_settings["orig_name"]
                         preprocess_export_dict_duplicate[orig_name] = obj
                         if obj.lr_object_export_settings.object_mode == 'PARENT':
-                            self.export_nodes.add(obj) # Use new duplicates to export
+                            self._export_nodes.add(obj) # Use new duplicates to export
 
 
                 for name,obj in preprocess_export_dict_duplicate.items():
                     obj.name = name
 
 
-                self.preprocess_obj_duplicates = set(preprocess_export_dict_duplicate.values()) # For preprocess script
+                self._preprocess_obj_duplicates = set(preprocess_export_dict_duplicate.values()) # For preprocess script
                 
                 all_root_preproc_obj_duplicates.update(preprocess_export_dict_duplicate.values())
 
-                try:
-                    script_file = self.ADDON_ROOT / "scripts_preprocess" / root_preproc_node.lr_object_export_settings.python_scripts_prepro
-                    namespace = {
-                        "__file__": str(script_file),
-                        "__name__": "__lr_export_script_preprocess__",
-                        "self": self,
-                        "context": context,
-                    }
+                # try:
+                #     script_file = self.ADDON_ROOT / "scripts_preprocess" / root_preproc_node.lr_object_export_settings.python_scripts_prepro
+                #     namespace = {
+                #         "__file__": str(script_file),
+                #         "__name__": "__lr_export_script_preprocess__",
+                #         "self": self,
+                #         "context": context,
+                #     }
 
-                    with open(script_file, "r", encoding="utf-8") as f:
-                        exec(f.read(), namespace)
+                #     with open(script_file, "r", encoding="utf-8") as f:
+                #         exec(f.read(), namespace)
                 
+                # except Exception as e:
+                #     self.report({'ERROR'}, f"Error executing preprocess script {export_node_dupl.lr_object_export_settings.python_scripts}: {e}")
+
+
+                try:
+                    script_key = root_preproc_node.lr_object_export_settings.python_scripts_prepro
+                    entry = PYTHON_PREPRO_SCRIPT_MODULES.get(script_key)
+
+                    if not entry:
+                        raise RuntimeError(f"Script '{script_key}' not found in registry")
+
+                    module = entry["module"]
+
+                    # Expect the script to define a function called `main`
+                    if not hasattr(module, "main"):
+                        raise RuntimeError(f"Script '{script_key}' has no function 'main(self, context)'")
+
+                    # Call the script
+                    module.main(self, context)
+
                 except Exception as e:
-                    self.report({'ERROR'}, f"Error executing preprocess script {export_node_dupl.lr_object_export_settings.python_scripts}: {e}")
+                    self.report(
+                        {'ERROR'},
+                        f"Error executing preprocess script '{script_key}': {e}"
+                    )
+
 
 
                 #Name the objects
-                for obj in self.preprocess_obj_duplicates:
+                for obj in self._preprocess_obj_duplicates:
                     obj.name = obj.name+"_LRDuplPreprocessObjs~"
 
 
@@ -454,14 +472,14 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
             lp_suffix = '_lp'
             hp_suffix = '_hp'
             
-            if len(self.export_nodes) >= 2:
+            if len(self._export_nodes) >= 2:
                 hp_root = []
                 lp_root = []
 
                 lp_names = []
                 hp_names = []
 
-                for selected_obj in self.export_nodes:
+                for selected_obj in self._export_nodes:
                     if selected_obj.type != 'EMPTY':
                         continue
                     if selected_obj.name.lower().endswith(lp_suffix):
@@ -535,9 +553,9 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
         # ---------
 
         
-        for export_node in self.export_nodes:
+        for export_node in self._export_nodes:
             
-            self.exported_objects.clear()
+            self._exported_objects.clear()
 
             time_start = time.time()
 
@@ -599,7 +617,7 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
             # Naming after duplication
             # ----------
 
-            self.exported_objects = list(export_node_and_children_dupl)
+            self._exported_objects = list(export_node_and_children_dupl)
             # bpy.ops.object.select_all(action='DESELECT')
 
 
@@ -612,7 +630,7 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
             raw_path = bpy.data.filepath
             if not raw_path:
                 raw_path = ""
-            for obj in self.exported_objects:
+            for obj in self._exported_objects:
                 obj.name = obj.lr_object_export_settings["orig_name"]
 
                 obj["BlendSrc"] = raw_path.replace("\\","/")
@@ -629,23 +647,29 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
             # --------------------
             # Custom operations:
             # --------------------
-           
+            # print("REG: ", PYTHON_SCRIPT_MODULES)
             if export_node_dupl.lr_object_export_settings.python_scripts != 'NONE':
                 try:
-                    script_file = self.ADDON_ROOT / "scripts" / export_node_dupl.lr_object_export_settings.python_scripts
-                    namespace = {
-                        "__file__": str(script_file),
-                        "__name__": "__lr_export_script__",
-                        "self": self,
-                        "context": context,
-                    }
+                    script_key = export_node_dupl.lr_object_export_settings.python_scripts
+                    entry = PYTHON_SCRIPT_MODULES.get(script_key)
 
-                    with open(script_file, "r", encoding="utf-8") as f:
-                        exec(f.read(), namespace)
-                
+                    if not entry:
+                        raise RuntimeError(f"Script '{script_key}' not found in registry")
+
+                    module = entry["module"]
+
+                    # Expect the script to define a function called `main`
+                    if not hasattr(module, "main"):
+                        raise RuntimeError(f"Script '{script_key}' has no function 'main(self, context)'")
+
+                    # Call the script
+                    module.main(self, context)
+
                 except Exception as e:
-                    self.report({'ERROR'}, f"Error executing script {export_node_dupl.lr_object_export_settings.python_scripts}: {e}")
-
+                    self.report(
+                        {'ERROR'},
+                        f"Error executing preprocess script '{script_key}': {e}"
+                    )
 
 
             #--- NAMING FBX ---
@@ -657,8 +681,8 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
 
 
             suffix = lr_export_settings_scene.export_sm_suffix
-            if self.export_for_mask:
-                suffix = suffix + lr_export_settings_scene.export_mask_sm_suffix
+            # if self.export_for_mask:
+            #     suffix = suffix + lr_export_settings_scene.export_mask_sm_suffix
             
             filename_prefix_suffix = prefix+file_name+suffix
 
@@ -678,39 +702,38 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
             # print("Selected right before export:", bpy.context.selected_objects)
             # for obj in bpy.data.objects:
             #     print(obj.name,": ", obj.select_get())
-
-            #Debug
-            print("--- DEBUG RIGHT BEFORE EXPORT ---: ")
-            print(f"Number of exported objects: {len(bpy.context.selected_objects)}")
+            ignored_objs = []
             for obj in bpy.context.selected_objects:
                 if obj.type != "MESH":
                     continue
+                if obj.lr_object_export_settings.object_mode == "NOT_EXPORTED":
+                    ignored_objs.append(obj)
+                    obj.select_set(False)
                 
-                print(f"Obj: {obj.name}")
-                print(f"number of mat slots obj: {len(obj.material_slots)}, data: {len(obj.data.materials)}")
-
-                for idx, mat_slot in enumerate(obj.material_slots):
-                    print(f"Object Index: {idx} has material: {mat_slot.name}")
-
-
-                for idx, mat_slot in enumerate(obj.data.materials):
-                    print(f"Data Index: {idx} has material: {mat_slot.name}")
+                #Exclude not exported objects.
+                # if obj.lr_object_export_settings.object_mode == "NOT_EXPORTED":
+                #     obj.select_set(False)
+            file_writeable = True
+            if os.path.exists(str(export_file)) and not os.access(str(export_file), os.W_OK):
+                self.report({'ERROR'},"Export target is read-only.")
+                file_writeable = False
 
 
-                print("---")
-            print("--- DEBUG RIGHT BEFORE EXPORT END---: ")
-
-            bpy.ops.export_scene.fbx(filepath = str(export_file),
-                                     check_existing=False,
-                                     use_selection=True,
-                                     mesh_smooth_type="FACE",
-                                     prioritize_active_color=True,
-                                     colors_type='SRGB',
-                                     use_visible=False,
-                                     use_custom_props=True,
-                                     use_metadata=True,
-                                     add_leaf_bones=False) 
-
+            if file_writeable:
+                try:
+                    bpy.ops.export_scene.fbx(filepath = str(export_file),
+                                            check_existing=False,
+                                            use_selection=True,
+                                            mesh_smooth_type="FACE",
+                                            prioritize_active_color=True,
+                                            colors_type='SRGB',
+                                            use_visible=False,
+                                            use_custom_props=True,
+                                            use_metadata=True,
+                                            add_leaf_bones=False) 
+                except Exception as e:
+                    self.report({'ERROR'}, f"Error during export: {e}")
+                    # message = f"Error during export: {e}"
 
             if lr_export_settings_scene.send_payload:
                 utils.send_payload_to_listener(
@@ -720,7 +743,6 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
                     },
                     operator=self
                 )
-
 
             # bpy.ops.export_scene.fbx(
                 # filepath=GetExportFullpath(dirpath, filename),
@@ -740,28 +762,18 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
                 # axis_up=active.exportAxisUp,
                 # bake_space_transform=False
                 # )
-
-           #--- NAMING END ---
+            
+            #--- NAMING END ---
 
 
             #--- CLEANUP ---
-
-            #
+            for obj in ignored_objs:
+                bpy.data.objects.remove(obj, do_unlink=True)
             for obj in list(bpy.context.selected_objects):
                 bpy.data.objects.remove(obj, do_unlink=True)
 
-
-            #Return local view object state
-            # obj_to_remove_from_local_view = []
-            # if objects_in_local_view != None:
-            #     for obj in export_node_and_children:
-            #         if obj not in objects_in_local_view:
-            #             obj_to_remove_from_local_view.append(obj)
-
-            #     change_local_view_on_objects(obj_to_remove_from_local_view,active_viewport,add_to_local_view=False)
-
-            if filename_prefix_suffix == None:
-                message = f'Nothing Exported'
+            if filename_prefix_suffix == None or file_writeable == False:
+                message = f'Not Exported'
                 self.report({'INFO'}, message)
             else:
                 time_end = time.time()
