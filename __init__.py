@@ -33,16 +33,15 @@ addon_name = 'lr_export'
 dir_name_scripts = "scripts"
 dir_name_prepro_scripts = "scripts_preprocess"
 
-
 from .operators.operators import OBJECT_OT_lr_hierarchy_exporter, OBJECT_OT_store_object_data_json,OBJECT_OT_lr_pack_uvs,OBJECT_OT_lr_reimport, OT_OpenScriptsFolder
 # from .operators.wrappers import lr_export_one_material,lr_exportformask
 from bpy.props import IntProperty, CollectionProperty, StringProperty,FloatVectorProperty,BoolProperty,EnumProperty
 
 import importlib.util
 from pathlib import Path
-
+# import ui.ui as ui
+from . import addon_ui
 from .shared import PYTHON_SCRIPT_MODULES, PYTHON_PREPRO_SCRIPT_MODULES
-
 
 def load_module(path):
     path = Path(path)
@@ -91,6 +90,72 @@ def load_modules_from_dir(directory: pathlib.Path, registry: dict):
                 "enum_item": enum_item
             }
 
+
+
+addon_keymaps = []
+wm = bpy.context.window_manager
+kc = wm.keyconfigs.addon
+def register_keymap(
+    space_type="EMPTY",       # e.g. 'VIEW_3D', 'NODE_EDITOR', 'IMAGE_EDITOR'
+    region_type="WINDOW",     # usually 'WINDOW'
+    keymap_name="3D View",    # e.g. '3D View', 'Mesh', 'Object Mode'
+    operator="wm.call_menu",  # operator idname
+    key="A",                  # keyboard key
+    event="PRESS",            # PRESS, RELEASE, CLICK, etc.
+    shift=False,
+    ctrl=False,
+    alt=False,
+    oskey=False,
+    properties: dict | None = None # operator properties as dict
+):
+    """
+    Registers a keymap item with full user control.
+    Returns (km, kmi) so you can modify it further if needed.
+    """
+
+    wm = bpy.context.window_manager
+    kc = wm.keyconfigs.addon
+    if not kc:
+        return None, None
+
+    # Get or create keymap
+    km = kc.keymaps.get(keymap_name)
+    if km is None:
+        km = kc.keymaps.new(name=keymap_name, space_type=space_type, region_type=region_type)
+
+    # Create keymap item
+    kmi = km.keymap_items.new(
+        operator,
+        type=key,
+        value=event,
+        shift=shift,
+        ctrl=ctrl,
+        alt=alt,
+        oskey=oskey)
+
+    # Apply operator properties
+    if properties:
+        for prop, value in properties.items():
+            setattr(kmi.properties, prop, value)
+
+    addon_keymaps.append((km, kmi))
+    return km, kmi
+
+
+
+def unregister_keymap(addon_keymaps):
+    wm = bpy.context.window_manager
+    kc = wm.keyconfigs.addon
+    if not kc:
+        return
+
+    for km, kmi in addon_keymaps:
+        try:
+            km.keymap_items.remove(kmi)
+        except Exception:
+            pass  # item already removed or keymap missing
+
+    addon_keymaps.clear()
 
 
 class LR_Exporter_RefreshScripts(bpy.types.Operator):
@@ -196,7 +261,7 @@ class LR_ExportSettings_Object(bpy.types.PropertyGroup):
         description="Export mode",
         override={'LIBRARY_OVERRIDABLE'},
         items=[
-            ("PARENT","Export recursive","Export this object and its children","GEOMETRY_SET",1),
+            ("PARENT","Export Node","Export this object and its children","GEOMETRY_SET",1),
             ("AUTO", "Auto", "Object is included in export if in hierarchy.","BOIDS",2),
             ("NOT_EXPORTED","Ignored","Object is excluded from export.","X",3),
             ("MASK_EXPORT","Mask Only","Object is exported only fro mask","MOD_MASK",4)
@@ -308,22 +373,18 @@ class VIEW3D_PT_lr_export(bpy.types.Panel):
         row = layout.column()
         row.prop(lr_export_settings_scene, "export_sm_prefix", slider=True)
         row.prop(lr_export_settings_scene, "export_sm_suffix")
-
         # row = layout.column()
+
         row.prop(lr_export_settings_scene, "export_path")
         # row = layout.row(align=True)        
         # row.prop(lr_export_settings_scene, "export_full_hierarchy")
         row.prop(lr_export_settings_scene, "export_hidden")
         row.prop(lr_export_settings_scene, "add_missing_hp")    
         row.prop(lr_export_settings_scene, "send_payload")  
-        
         # layout.alignment = 'RIGHT'  # or 'LEFT', 'CENTER', 'RIGHT'
 
 
-
-
         # Object Settings
-
         layout = self.layout.box()
         layout.label(text='Object Settings:')
         row = layout.row(align=True)  
@@ -332,16 +393,12 @@ class VIEW3D_PT_lr_export(bpy.types.Panel):
             # row = layout.column()
 
 
-
         row = layout.row(align=True)  
         if context.object:
             # row.alignment = 'RIGHT'
             row.prop(context.object.lr_object_export_settings,'lr_exportsubfolder')
             
-        # row.separator()
-
         row = layout.column_flow(columns=2)
-
         row.prop(context.object.lr_object_export_settings,'lr_export_reset_position')
         row.prop(context.object.lr_object_export_settings,'lr_export_reset_rotation')
                  #Setting is avaliable on parent object only
@@ -359,9 +416,6 @@ class VIEW3D_PT_lr_export(bpy.types.Panel):
             op = row.operator("wm.lr_exporter_open_scripts_folder", text="", icon='FILE_FOLDER')
             op.subfolder = "scripts"
 
-
-
-        
         layout = self.layout.box()
         layout.scale_y = 2
         op_export = layout.operator("object.lr_exporter_export", text="Export", icon = 'EXPORT')
@@ -369,10 +423,6 @@ class VIEW3D_PT_lr_export(bpy.types.Panel):
         
         row.separator()
         
-
-
-
-
 class VIEW3D_PT_lr_importer(bpy.types.Panel):
     bl_label = "REIMPORTER"
     bl_idname = "OBJECT_PT_lr_importer"
@@ -468,24 +518,29 @@ classes = [LR_ExportSettings_Scene,
            #Export assembly 
            VIEW3D_PT_lr_export_assembly,
            OBJECT_OT_store_object_data_json,
-           LR_Exporter_RefreshScripts]
-def add_to_object_context_menu(self, context):
-    if context.mode == 'OBJECT' and context.object:
-        layout = self.layout
-        layout.separator()
-        # layout.prop_menu_enum(context.object.lr_object_export_settings, "object_mode")
+           LR_Exporter_RefreshScripts,
+           
+           #UI
+           addon_ui.lr_export_menu
+           
+           ]
+# def add_to_object_context_menu(self, context):
+#     if context.mode == 'OBJECT' and context.object:
+#         layout = self.layout
+#         layout.separator()
+#         # layout.prop_menu_enum(context.object.lr_object_export_settings, "object_mode")
 
-        row = layout.column()
-        # row.prop(context.object.lr_object_export_settings, "object_mode", text="")
-# bpy.ops.object.lr_exporter_export(export_hidden=True, export_for_mask=False)
-        row.label(text="Exporter settings")
-        row.prop(
-            context.object.lr_object_export_settings,
-            "object_mode",
-            text="",
-            icon='OBJECT_DATA'
-        )
-        row.operator("object.lr_exporter_export", text="Export", icon = 'EXPORT')
+#         row = layout.column()
+#         # row.prop(context.object.lr_object_export_settings, "object_mode", text="")
+# # bpy.ops.object.lr_exporter_export(export_hidden=True, export_for_mask=False)
+#         row.label(text="Exporter settings")
+#         row.prop(
+#             context.object.lr_object_export_settings,
+#             "object_mode",
+#             text="",
+#             icon='OBJECT_DATA'
+#         )
+#         row.operator("object.lr_exporter_export", text="Export", icon = 'EXPORT')
 
 def register():
     for cls in classes:
@@ -493,13 +548,16 @@ def register():
     bpy.types.Scene.lr_export_settings_scene = bpy.props.PointerProperty(type=LR_ExportSettings_Scene)
     bpy.types.Object.lr_object_export_settings = bpy.props.PointerProperty(type=LR_ExportSettings_Object)
     bpy.app.handlers.load_post.append(on_load)
-    bpy.types.VIEW3D_MT_object_context_menu.append(add_to_object_context_menu)
+    # bpy.types.VIEW3D_MT_object_context_menu.append(add_to_object_context_menu)
+    register_keymap(keymap_name="Object Mode",key="E",shift=True,operator="wm.call_menu",properties={"name": "OBJECT_MT_lr_export_menu"})
+
 def unregister():
+    unregister_keymap(addon_keymaps)
     for cls in classes:
         bpy.utils.unregister_class(cls)
     del bpy.types.Scene.lr_export_settings_scene
     del bpy.types.Object.lr_object_export_settings
-    bpy.types.VIEW3D_MT_object_context_menu.remove(add_to_object_context_menu)
+    # bpy.types.VIEW3D_MT_object_context_menu.remove(add_to_object_context_menu)
 
 
 

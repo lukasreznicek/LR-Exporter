@@ -380,7 +380,6 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
                 root_preproc_node_objs.add(root_preproc_node)
 
                 root_preproc_node_objs_filtered = all_src_objects_for_export & root_preproc_node_objs #No need to change objects that are not exported  
-                    
                 for obj in root_preproc_node_objs_filtered:
                     obj.select_set(True)
 
@@ -390,9 +389,7 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
                     if obj.lr_object_export_settings.object_mode == 'PARENT': 
                         self._export_nodes.remove(obj) # Remove original wont be exported - Replaced by duplicate
 
-
                 bpy.ops.object.duplicate(linked=True) #Only happens when preprocess is used
-
 
                 preprocess_export_dict_duplicate = {}
                 for obj in bpy.context.selected_objects:
@@ -449,24 +446,13 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
                         f"Error executing preprocess script '{script_key}': {e}"
                     )
 
-
-
                 #Name the objects
                 for obj in self._preprocess_obj_duplicates:
                     obj.name = obj.name+"_LRDuplPreprocessObjs~"
 
-
-
-
-
-
-
             #Execute Script on preprocess objects - rename to original
         
-
-
-
-
+        
         # ------------ ADD MISSING HP ------------
         if lr_export_settings_scene.add_missing_hp == True:
             lp_suffix = '_lp'
@@ -704,12 +690,17 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
             #     print(obj.name,": ", obj.select_get())
             ignored_objs = []
             for obj in bpy.context.selected_objects:
-                if obj.type != "MESH":
-                    continue
+                # print(f"Exported object: {obj.name}")
+                if obj.type == "EMPTY" and obj.name.startswith("SOCKET_"): #Fix sockets
+                    obj.scale = obj.scale/100
+                    obj.rotation_euler.rotate_axis('X', math.radians(90))
+
+                # if obj.type != "MESH":
+                    # continue
                 if obj.lr_object_export_settings.object_mode == "NOT_EXPORTED":
                     ignored_objs.append(obj)
                     obj.select_set(False)
-                
+
                 #Exclude not exported objects.
                 # if obj.lr_object_export_settings.object_mode == "NOT_EXPORTED":
                 #     obj.select_set(False)
