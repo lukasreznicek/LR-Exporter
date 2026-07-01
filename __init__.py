@@ -261,8 +261,8 @@ class LR_ExportSettings_Object(bpy.types.PropertyGroup):
         description="Export mode",
         override={'LIBRARY_OVERRIDABLE'},
         items=[
-            ("PARENT","Export Node","Export this object and its children","GEOMETRY_SET",1),
-            ("AUTO", "Auto", "Object is included in export if in hierarchy.","BOIDS",2),
+            ("PARENT","Export Node","Export this object and its children","EMPTY_ARROWS",1),
+            ("AUTO", "Exported", "Object is included in export if in hierarchy.","BOIDS",2),
             ("NOT_EXPORTED","Ignored","Object is excluded from export.","X",3),
             ("MASK_EXPORT","Mask Only","Object is exported only fro mask","MOD_MASK",4)
             ],

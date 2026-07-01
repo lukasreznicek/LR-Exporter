@@ -263,7 +263,7 @@ class OBJECT_OT_lr_hierarchy_exporter(bpy.types.Operator):
                 self._export_nodes.add(obj)
 
         if not self._export_nodes:
-            self.report({'WARNING'}, "No objects have 'Export Recursive' Mode on in hierarchy.")
+            self.report({'WARNING'}, "No objects have 'Export Node' mode in hierarchy.")
             return {'CANCELLED'}
 
 
